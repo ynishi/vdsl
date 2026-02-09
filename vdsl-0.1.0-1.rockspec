@@ -1,3 +1,4 @@
+rockspec_format = "3.0"
 package = "vdsl"
 version = "0.1.0-1"
 
