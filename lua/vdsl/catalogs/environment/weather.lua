@@ -14,10 +14,12 @@
 
 local Trait   = require("vdsl.trait")
 local Catalog = require("vdsl.catalog")
+local K       = Trait  -- tag key constants
 
 return Catalog.new {
   clear_sky = Trait.new("clear sky, blue sky, sunny")
-    :hint("color", { brightness = 1.05 }),
+    :hint("color", { brightness = 1.05 })
+    :tag(K.CONFLICTS, "storm, heavy rain, blizzard, thick fog"),
 
   cloudy = Trait.new("cloudy sky, clouds, partly cloudy"),
 
@@ -30,25 +32,29 @@ return Catalog.new {
 
   heavy_rain = Trait.new("heavy rain, downpour", 1.2)
     + Trait.new("torrential rain, water streaming")
-    :hint("color", { saturation = 0.85, brightness = 0.9, contrast = 1.1 }),
+    :hint("color", { saturation = 0.85, brightness = 0.9, contrast = 1.1 })
+    :tag(K.CONFLICTS, "clear sky"),
 
   snow = Trait.new("snow, snowy, snowflakes, white landscape")
     :hint("color", { brightness = 1.1, saturation = 0.8 }),
 
   blizzard = Trait.new("blizzard, heavy snow", 1.2)
     + Trait.new("strong winds, whiteout")
-    :hint("color", { brightness = 1.15, saturation = 0.7, contrast = 0.85 }),
+    :hint("color", { brightness = 1.15, saturation = 0.7, contrast = 0.85 })
+    :tag(K.CONFLICTS, "clear sky"),
 
   fog = Trait.new("fog, thick fog", 1.1)
     + Trait.new("low visibility, foggy atmosphere")
-    :hint("color", { contrast = 0.8, saturation = 0.85 }),
+    :hint("color", { contrast = 0.8, saturation = 0.85 })
+    :tag(K.CONFLICTS, "clear sky"),
 
   mist = Trait.new("mist, light mist, soft haze, misty")
     :hint("color", { contrast = 0.9 }),
 
   storm = Trait.new("storm, stormy sky", 1.1)
     + Trait.new("dark clouds, dramatic weather")
-    :hint("color", { brightness = 0.85, contrast = 1.2 }),
+    :hint("color", { brightness = 0.85, contrast = 1.2 })
+    :tag(K.CONFLICTS, "clear sky"),
 
   thunder = Trait.new("thunderstorm, lightning bolts", 1.2)
     + Trait.new("dark sky, thunder")

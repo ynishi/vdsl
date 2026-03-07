@@ -35,6 +35,104 @@ end
 local LATENT_OPS = { hires = true, refine = true }
 
 -- ============================================================
+-- Conflict resolution strategies
+-- ============================================================
+
+local CONFLICT_STRATEGIES = {
+  ignore     = true,  -- no detection, no modification
+  warn       = true,  -- detect + warning, no modification (default)
+  downweight = true,  -- detect + warning + reduce emphasis of later trait
+  drop       = true,  -- detect + warning + remove later trait
+}
+
+local DOWNWEIGHT_DELTA = -0.3  -- emphasis reduction for "downweight" strategy
+
+--- Detect conflicts between traits using tag-based conflict declarations.
+-- Shared by both check() and compile().
+-- @param diags table from Subject:trait_diagnostics()
+-- @return table list of { source_idx, target_idx, source_text, target_text, matched }
+local function detect_conflicts(diags)
+  local found = {}
+  for di, d in ipairs(diags) do
+    local conflicts_val = d.tags and d.tags.conflicts
+    if conflicts_val and type(conflicts_val) == "string" then
+      for conflict_text in conflicts_val:gmatch("[^,]+") do
+        conflict_text = conflict_text:match("^%s*(.-)%s*$")  -- trim
+        if conflict_text ~= "" then
+          for oi, other in ipairs(diags) do
+            if oi ~= di then
+              if other.text:lower():find(conflict_text:lower(), 1, true) then
+                found[#found + 1] = {
+                  source_idx  = di,
+                  target_idx  = oi,
+                  source_text = d.text,
+                  target_text = other.text,
+                  matched     = conflict_text,
+                }
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  return found
+end
+
+--- Resolve conflicts on a Subject using the given strategy.
+-- @param subject Subject entity
+-- @param strategy string "ignore"|"warn"|"downweight"|"drop"
+-- @return subject (possibly modified), conflicts table, warning strings
+local function resolve_subject_conflicts(subject, strategy)
+  strategy = strategy or "warn"
+
+  if strategy == "ignore" then
+    return subject, {}, {}
+  end
+
+  if not (Entity.is(subject, "subject") and type(subject.trait_diagnostics) == "function") then
+    return subject, {}, {}
+  end
+
+  local diags = subject:trait_diagnostics()
+  local raw_conflicts = detect_conflicts(diags)
+
+  if #raw_conflicts == 0 then
+    return subject, {}, {}
+  end
+
+  -- Build warning strings
+  local warn_strs = {}
+  for _, c in ipairs(raw_conflicts) do
+    warn_strs[#warn_strs + 1] = string.format(
+      'conflict: "%s" conflicts with "%s" (matched "%s")',
+      c.source_text, c.target_text, c.matched)
+  end
+
+  if strategy == "warn" then
+    return subject, raw_conflicts, warn_strs
+  end
+
+  -- For downweight/drop: act on the LATER trait (higher index) in each pair
+  local actions = {}
+  for _, c in ipairs(raw_conflicts) do
+    local later_idx = math.max(c.source_idx, c.target_idx)
+    c.action = strategy
+    c.acted_on_idx = later_idx
+    if strategy == "drop" then
+      actions[later_idx] = "drop"
+    elseif strategy == "downweight" then
+      if not actions[later_idx] then  -- avoid double-downweight
+        actions[later_idx] = DOWNWEIGHT_DELTA
+      end
+    end
+  end
+
+  local modified = subject:apply_conflict_resolution(actions)
+  return modified, raw_conflicts, warn_strs
+end
+
+-- ============================================================
 -- Prompt ordering strategies
 -- Each strategy is an ordered list of prompt segments.
 -- "subject", "style", "detail" → Subject category groups
@@ -688,6 +786,13 @@ function M.compile(opts)
     end
   end
 
+  -- Validate on_conflict strategy
+  local conflict_strategy = opts.on_conflict or "warn"
+  if not CONFLICT_STRATEGIES[conflict_strategy] then
+    error("render: unknown on_conflict strategy '" .. conflict_strategy
+      .. "', available: ignore, warn, downweight, drop", 2)
+  end
+
   ensure_seeded()
 
   local g = Graph.new()
@@ -695,25 +800,47 @@ function M.compile(opts)
   -- 1. World
   local model_ref, clip_ref, vae_ref = compile_world(g, opts.world)
 
-  -- 2. Atmosphere (resolved once, applied to all casts)
+  -- 2. Conflict resolution (before prompt assembly)
+  local all_conflicts = {}
+  local effective_casts = {}
+  for ci, cast in ipairs(opts.cast) do
+    local resolved_subj, conflicts = resolve_subject_conflicts(
+      cast.subject, conflict_strategy)
+    if #conflicts > 0 then
+      effective_casts[ci] = {
+        subject   = resolved_subj,
+        negative  = cast.negative,
+        lora      = cast.lora,
+        ipadapter = cast.ipadapter,
+      }
+      for _, c in ipairs(conflicts) do
+        c.cast_index = ci
+        all_conflicts[#all_conflicts + 1] = c
+      end
+    else
+      effective_casts[ci] = cast
+    end
+  end
+
+  -- 3. Atmosphere (resolved once, applied to all casts)
   local atmosphere_text = nil
   if opts.atmosphere then
     atmosphere_text = Entity.resolve_text(opts.atmosphere)
   end
 
-  -- 3. Casts (multiple supported, combined via ConditioningCombine)
+  -- 4. Casts (multiple supported, combined via ConditioningCombine)
   local positive_ref, negative_ref
   model_ref, positive_ref, negative_ref = compile_casts(
-    g, opts.cast, model_ref, clip_ref, opts.world, atmosphere_text, opts.strategy
+    g, effective_casts, model_ref, clip_ref, opts.world, atmosphere_text, opts.strategy
   )
 
-  -- 4. Global negative (opts.negative)
+  -- 5. Global negative (opts.negative)
   local global_neg_text = resolve_global_negative(opts)
   negative_ref = compile_global_negative(
     g, global_neg_text, negative_ref, clip_ref
   )
 
-  -- 5. Stage (optional)
+  -- 6. Stage (optional)
   local stage_latent_ref = nil
   if opts.stage then
     positive_ref, negative_ref, stage_latent_ref = compile_stage(
@@ -721,7 +848,7 @@ function M.compile(opts)
     )
   end
 
-  -- 6. Latent source
+  -- 7. Latent source
   local latent_ref
   if stage_latent_ref then
     latent_ref = stage_latent_ref
@@ -735,7 +862,7 @@ function M.compile(opts)
     latent_ref = empty(0)
   end
 
-  -- 7. KSampler
+  -- 8. KSampler
   local seed = opts.seed
   if not seed then
     seed = math.random(0, 2^32 - 1)
@@ -757,19 +884,19 @@ function M.compile(opts)
   })
   latent_ref = sampler(0)
 
-  -- 8. Resolve post pipeline (explicit > world > hints > none)
+  -- 9. Resolve post pipeline (explicit > world > hints > none)
   local post = opts.post
   if not post and opts.world.post then
     post = opts.world.post
   end
   if not post and opts.auto_post ~= false then
-    local hints = collect_hints(opts.cast)
+    local hints = collect_hints(effective_casts)
     if hints then
       post = build_post_from_hints(hints)
     end
   end
 
-  -- 9. Post: latent phase (before VAEDecode)
+  -- 10. Post: latent phase (before VAEDecode)
   if post then
     latent_ref = compile_post_latent(
       g, post, latent_ref,
@@ -777,14 +904,14 @@ function M.compile(opts)
     )
   end
 
-  -- 10. VAE Decode
+  -- 11. VAE Decode
   local decoded = g:add("VAEDecode", {
     samples = latent_ref,
     vae     = vae_ref,
   })
   local image_ref = decoded(0)
 
-  -- 11. Post: pixel phase (after VAEDecode)
+  -- 12. Post: pixel phase (after VAEDecode)
   if post then
     local ctx = {
       model    = model_ref,
@@ -798,7 +925,7 @@ function M.compile(opts)
     image_ref = compile_post_pixel(g, post, image_ref, ctx)
   end
 
-  -- 12. Save
+  -- 13. Save
   local prefix = "vdsl"
   if opts.output then
     prefix = opts.output:gsub("%.[^%.]+$", "")
@@ -814,9 +941,10 @@ function M.compile(opts)
 
   local prompt = g:to_prompt()
   return {
-    prompt = prompt,
-    json   = json.encode(prompt, true),
-    graph  = g,
+    prompt    = prompt,
+    json      = json.encode(prompt, true),
+    graph     = g,
+    conflicts = all_conflicts,
   }
 end
 
@@ -976,7 +1104,10 @@ function M.check(opts)
     end
   end
 
-  -- Trait confidence / tag diagnostics
+  -- Trait confidence / tag diagnostics + conflict detection
+  local check_conflict_strategy = opts.on_conflict or "warn"
+  local check_conflicts = {}
+
   for ci, cast in ipairs(opts.cast) do
     local subj = cast.subject
     if Entity.is(subj, "subject") and type(subj.trait_diagnostics) == "function" then
@@ -989,13 +1120,35 @@ function M.check(opts)
         has_lora = subj_hints and subj_hints.lora ~= nil
       end
 
+      -- Conflict detection via shared function
+      if check_conflict_strategy ~= "ignore" then
+        local raw_conflicts = detect_conflicts(diags)
+        for _, c in ipairs(raw_conflicts) do
+          local later_idx = math.max(c.source_idx, c.target_idx)
+          local action_suffix = ""
+          if check_conflict_strategy == "downweight" then
+            action_suffix = string.format(
+              " → on_conflict=\"downweight\": trait #%d emphasis %+.1f",
+              later_idx, DOWNWEIGHT_DELTA)
+          elseif check_conflict_strategy == "drop" then
+            action_suffix = string.format(
+              " → on_conflict=\"drop\": trait #%d removed", later_idx)
+          end
+          warnings[#warnings + 1] = string.format(
+            "cast[%d] conflict: \"%s\" conflicts with \"%s\" (matched \"%s\")%s.",
+            ci, c.source_text, c.target_text, c.matched, action_suffix)
+          c.cast_index = ci
+          c.action = check_conflict_strategy
+          check_conflicts[#check_conflicts + 1] = c
+        end
+      end
+
       for _, d in ipairs(diags) do
         -- Low confidence warning
         if d.confidence < 0.5 then
-          local msg = string.format(
+          warnings[#warnings + 1] = string.format(
             "cast[%d] trait \"%s\": confidence %.2f (low).",
             ci, d.text, d.confidence)
-          warnings[#warnings + 1] = msg
         end
 
         -- Hint: benefits_from — suggest resource if not present
@@ -1027,6 +1180,7 @@ function M.check(opts)
     casts       = casts,
     warnings    = warnings,
     suggestions = suggestions,
+    conflicts   = check_conflicts,
     limits      = {
       chunk_size = CLIP_CHUNK_SIZE,
       sweet_spot = CLIP_SWEET_SPOT,

@@ -23,10 +23,12 @@
 
 local Trait   = require("vdsl.trait")
 local Catalog = require("vdsl.catalog")
+local K       = Trait  -- tag key constants
 
 return Catalog.new {
   -- === Positive ===
-  smile = Trait.new("smiling, smile"),
+  smile = Trait.new("smiling, smile")
+    :tag(K.CONFLICTS, "angry, crying"),
 
   gentle_smile = Trait.new("gentle smile", 1.1)
     + Trait.new("soft expression, warm smile"),
@@ -47,22 +49,26 @@ return Catalog.new {
 
   fang_out = Trait.new("fang out, closed mouth", 1.1),
 
-  happy = Trait.new("happy, joyful expression"),
+  happy = Trait.new("happy, joyful expression")
+    :tag(K.CONFLICTS, "sad, angry"),
 
   excited = Trait.new("excited", 1.1)
     + Trait.new("enthusiastic, eyes wide with excitement"),
 
   -- === Negative ===
-  angry = Trait.new("angry, furrowed brows"),
+  angry = Trait.new("angry, furrowed brows")
+    :tag(K.CONFLICTS, "smiling, happy"),
 
   furious = Trait.new("furious", 1.1)
     + Trait.new("rage, intense anger, clenched teeth"),
 
   sad = Trait.new("sad", 1.1)
-    + Trait.new("sorrowful, downcast eyes"),
+    + Trait.new("sorrowful, downcast eyes")
+    :tag(K.CONFLICTS, "happy, laughing"),
 
   crying = Trait.new("crying", 1.2)
-    + Trait.new("tears, tears streaming down face"),
+    + Trait.new("tears, tears streaming down face")
+    :tag(K.CONFLICTS, "smiling, laughing"),
 
   scared = Trait.new("scared", 1.1)
     + Trait.new("frightened, fearful expression"),
@@ -128,9 +134,11 @@ return Catalog.new {
   -- NOTE: closed_eyes is UNRELIABLE on SDXL base. Works better on
   -- anime finetunes. ADetailer may override closed eyes to open.
   -- Consider LoRA assistance for reliable closed-eye generation.
-  closed_eyes = Trait.new("closed eyes", 1.2),
+  closed_eyes = Trait.new("closed eyes", 1.2)
+    :tag(K.CONFLICTS, "wide eyes"),
 
-  wide_eyes = Trait.new("wide eyes, eyes wide open"),
+  wide_eyes = Trait.new("wide eyes, eyes wide open")
+    :tag(K.CONFLICTS, "closed eyes"),
 
   teary_eyes = Trait.new("teary eyes, watery eyes, glistening eyes", 1.1),
 

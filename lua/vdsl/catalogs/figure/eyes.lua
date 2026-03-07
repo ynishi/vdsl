@@ -28,11 +28,14 @@ return Catalog.new {
   -- === Color (Danbooru single tags, do not split) ===
   -- S tier (>1M posts): highly reliable across all SDXL-based models.
   blue    = Trait.new("blue eyes")
-    :confidence(0.95):tag(K.TIER, "S"):tag(K.SOURCE, "danbooru"),
+    :confidence(0.95):tag(K.TIER, "S"):tag(K.SOURCE, "danbooru")
+    :tag(K.CONFLICTS, "blonde hair"),  -- blue_eyes has strong blonde hair bias in SDXL base
   red     = Trait.new("red eyes")
-    :confidence(0.95):tag(K.TIER, "S"):tag(K.SOURCE, "danbooru"),
+    :confidence(0.95):tag(K.TIER, "S"):tag(K.SOURCE, "danbooru")
+    :tag(K.CONFLICTS, "red hair"),  -- color bleeding
   green   = Trait.new("green eyes")
-    :confidence(0.95):tag(K.TIER, "S"):tag(K.SOURCE, "danbooru"),
+    :confidence(0.95):tag(K.TIER, "S"):tag(K.SOURCE, "danbooru")
+    :tag(K.CONFLICTS, "green hair"),  -- color bleeding
   brown   = Trait.new("brown eyes")
     :confidence(0.90):tag(K.TIER, "S"):tag(K.SOURCE, "danbooru"),  -- may drift to black on some seeds
   purple  = Trait.new("purple eyes")
@@ -47,7 +50,8 @@ return Catalog.new {
   aqua    = Trait.new("aqua eyes")
     :confidence(0.80):tag(K.TIER, "A"):tag(K.SOURCE, "danbooru"),
   pink    = Trait.new("pink eyes")
-    :confidence(0.80):tag(K.TIER, "A"):tag(K.SOURCE, "danbooru"),
+    :confidence(0.80):tag(K.TIER, "A"):tag(K.SOURCE, "danbooru")
+    :tag(K.CONFLICTS, "pink hair"),  -- color bleeding
 
   -- B tier: limited data, model-dependent.
   silver  = Trait.new("silver eyes")

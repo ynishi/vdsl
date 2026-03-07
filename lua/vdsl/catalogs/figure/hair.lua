@@ -12,20 +12,32 @@
 
 local Trait   = require("vdsl.trait")
 local Catalog = require("vdsl.catalog")
+local K       = Trait  -- tag key constants
 
 return Catalog.new {
   -- === Color ===
+  -- Color bleeding: hair color may leak into eyes/clothing on SDXL base.
+  -- Mitigation: place hair color BEFORE eye/clothing color in prompt.
+  -- Source: Fooocus issue #2205, Civitai Illustrious/NoobAI Tips.
   black   = Trait.new("black hair"),
   brown   = Trait.new("brown hair"),
-  blonde  = Trait.new("blonde hair"),
-  red     = Trait.new("red hair"),
-  white   = Trait.new("white hair"),
-  silver  = Trait.new("silver hair"),
+  blonde  = Trait.new("blonde hair")
+    :tag(K.CONFLICTS, "blue eyes"),  -- strong blonde bias with blue_eyes on SDXL base
+  red     = Trait.new("red hair")
+    :tag(K.CONFLICTS, "red eyes"),  -- color bleeding between hair and eyes
+  white   = Trait.new("white hair")
+    :tag(K.CONFLICTS, "silver hair"),  -- visually indistinguishable on many seeds
+  silver  = Trait.new("silver hair")
+    :tag(K.CONFLICTS, "white hair"),
   grey    = Trait.new("grey hair"),
-  blue    = Trait.new("blue hair"),
-  pink    = Trait.new("pink hair"),
-  green   = Trait.new("green hair"),
-  purple  = Trait.new("purple hair"),
+  blue    = Trait.new("blue hair")
+    :tag(K.CONFLICTS, "blue eyes"),  -- color bleeding
+  pink    = Trait.new("pink hair")
+    :tag(K.CONFLICTS, "pink eyes"),
+  green   = Trait.new("green hair")
+    :tag(K.CONFLICTS, "green eyes"),
+  purple  = Trait.new("purple hair")
+    :tag(K.CONFLICTS, "purple eyes"),  -- poor color separation
 
   -- === Length ===
   short      = Trait.new("short hair"),

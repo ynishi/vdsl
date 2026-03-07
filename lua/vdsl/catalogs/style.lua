@@ -8,20 +8,25 @@
 
 local Trait   = require("vdsl.trait")
 local Catalog = require("vdsl.catalog")
+local K       = Trait  -- tag key constants
 
 return Catalog.new {
   -- === Core styles (high reliability on SDXL) ===
   anime = Trait.new("anime style", 1.1)
-    + Trait.new("cel shading, flat color, clean lineart, 2D"),
+    + Trait.new("cel shading, flat color, clean lineart, 2D")
+    :tag(K.CONFLICTS, "photorealistic"),
 
   photo = Trait.new("photorealistic", 1.2)
-    + Trait.new("raw photo, DSLR, natural skin texture, film grain"),
+    + Trait.new("raw photo, DSLR, natural skin texture, film grain")
+    :tag(K.CONFLICTS, "anime style"),
 
   oil = Trait.new("oil painting", 1.1)
-    + Trait.new("visible brush strokes, classical art, canvas texture"),
+    + Trait.new("visible brush strokes, classical art, canvas texture")
+    :tag(K.CONFLICTS, "watercolor painting"),
 
   watercolor = Trait.new("watercolor painting", 1.1)
-    + Trait.new("soft edges, wet media, color bleeding, paper texture"),
+    + Trait.new("soft edges, wet media, color bleeding, paper texture")
+    :tag(K.CONFLICTS, "oil painting"),
 
   cinematic = Trait.new("cinematic", 1.2)
     + Trait.new("film grain, anamorphic lens, dramatic lighting, color grading"),
@@ -33,7 +38,8 @@ return Catalog.new {
     + Trait.new("illustration, vibrant colors, detailed"),
 
   line_art = Trait.new("line art", 1.1)
-    + Trait.new("ink drawing, clean lines, monochrome, pen illustration"),
+    + Trait.new("ink drawing, clean lines, monochrome, pen illustration")
+    :tag(K.CONFLICTS, "no lineart"),
 
   -- === Technique modifiers (compose with styles above) ===
   -- These override the default shading/linework of a style.
@@ -45,7 +51,8 @@ return Catalog.new {
     + Trait.new("smooth gradients, gentle shadows"),
 
   no_lineart = Trait.new("no lineart, lineless", 1.1)
-    + Trait.new("painting without outlines"),
+    + Trait.new("painting without outlines")
+    :tag(K.CONFLICTS, "line art"),
 
   impasto = Trait.new("impasto", 1.1)
     + Trait.new("thick paint, textured brushwork, heavy strokes"),

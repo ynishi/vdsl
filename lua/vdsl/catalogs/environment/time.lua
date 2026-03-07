@@ -16,12 +16,14 @@
 
 local Trait   = require("vdsl.trait")
 local Catalog = require("vdsl.catalog")
+local K       = Trait  -- tag key constants
 
 return Catalog.new {
   -- === Time of Day ===
   dawn = Trait.new("dawn, early morning light", 1.1)
     + Trait.new("pre-sunrise, soft pastels")
-    :hint("color", { brightness = 0.95, saturation = 1.05 }),
+    :hint("color", { brightness = 0.95, saturation = 1.05 })
+    :tag(K.CONFLICTS, "midnight, deep night"),
 
   sunrise = Trait.new("sunrise, rising sun", 1.1)
     + Trait.new("warm horizon, morning glow")
@@ -30,7 +32,8 @@ return Catalog.new {
   morning = Trait.new("morning, morning light, daylight"),
 
   midday = Trait.new("midday, noon, bright sunlight, overhead sun")
-    :hint("color", { brightness = 1.1, contrast = 1.1 }),
+    :hint("color", { brightness = 1.1, contrast = 1.1 })
+    :tag(K.CONFLICTS, "nighttime, midnight"),
 
   afternoon = Trait.new("afternoon, warm daylight"),
 
@@ -47,11 +50,13 @@ return Catalog.new {
     :hint("color", { saturation = 1.1 }),
 
   night = Trait.new("night, nighttime, dark sky")
-    :hint("color", { brightness = 0.75, contrast = 1.1 }),
+    :hint("color", { brightness = 0.75, contrast = 1.1 })
+    :tag(K.CONFLICTS, "midday, bright sunlight"),
 
   midnight = Trait.new("midnight, deep night", 1.1)
     + Trait.new("pitch dark, starless")
-    :hint("color", { brightness = 0.65, contrast = 1.15 }),
+    :hint("color", { brightness = 0.65, contrast = 1.15 })
+    :tag(K.CONFLICTS, "midday, dawn"),
 
   moonlight = Trait.new("moonlit, moonlight", 1.1)
     + Trait.new("silvery light, moon in sky")

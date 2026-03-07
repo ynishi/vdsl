@@ -1180,4 +1180,363 @@ T.ok("json: starts {",        r1.json:sub(1, 1) == "{")
 T.ok("json: has class_type",  r1.json:find("class_type") ~= nil)
 T.ok("json: has KSampler",    r1.json:find("KSampler") ~= nil)
 
+-- ============================================================
+-- check(): Trait conflict detection
+-- ============================================================
+local C = vdsl.catalogs
+
+do -- hair/eyes conflict tests (scoped to avoid local var limit)
+-- Conflict detected: purple eyes + purple hair
+local conflict_subj = vdsl.subject("1girl")
+  :with(C.figure.eyes.purple)
+  :with(C.figure.hair.purple)
+local conflict_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = conflict_subj } },
+})
+local has_conflict = false
+for _, w in ipairs(conflict_diag.warnings) do
+  if w:find("conflict") then has_conflict = true; break end
+end
+T.ok("conflict: purple eyes + purple hair detected", has_conflict)
+
+-- Both directions: hair.purple conflicts with purple eyes, AND eyes.purple conflicts with purple hair
+local conflict_count = 0
+for _, w in ipairs(conflict_diag.warnings) do
+  if w:find("conflict") then conflict_count = conflict_count + 1 end
+end
+T.ok("conflict: bidirectional (both sides report)", conflict_count >= 2)
+
+-- No conflict: blue eyes + brown hair (no matching conflicts tag)
+local safe_subj = vdsl.subject("1girl")
+  :with(C.figure.eyes.blue)
+  :with(C.figure.hair.brown)
+local safe_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = safe_subj } },
+})
+local safe_conflict = false
+for _, w in ipairs(safe_diag.warnings) do
+  if w:find("conflict") then safe_conflict = true; break end
+end
+T.ok("conflict: blue eyes + brown hair = no conflict", not safe_conflict)
+
+-- Conflict detected: blue eyes + blonde hair (SDXL bias)
+local bias_subj = vdsl.subject("1girl")
+  :with(C.figure.eyes.blue)
+  :with(C.figure.hair.blonde)
+local bias_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = bias_subj } },
+})
+local has_bias = false
+for _, w in ipairs(bias_diag.warnings) do
+  if w:find("conflict") and w:find("blonde") then has_bias = true; break end
+end
+T.ok("conflict: blue eyes + blonde hair detected", has_bias)
+
+-- Conflict detected: red hair + red eyes (color bleeding)
+local red_subj = vdsl.subject("1girl")
+  :with(C.figure.hair.red)
+  :with(C.figure.eyes.red)
+local red_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = red_subj } },
+})
+local has_red = false
+for _, w in ipairs(red_diag.warnings) do
+  if w:find("conflict") and w:find("red") then has_red = true; break end
+end
+T.ok("conflict: red hair + red eyes detected", has_red)
+
+-- No conflict: unrelated traits
+local unrelated_subj = vdsl.subject("1girl")
+  :with(C.figure.hair.black)
+  :with(C.figure.eyes.yellow)
+  :with(C.figure.body.slim)
+local unrelated_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = unrelated_subj } },
+})
+local unrelated_conflict = false
+for _, w in ipairs(unrelated_diag.warnings) do
+  if w:find("conflict") then unrelated_conflict = true; break end
+end
+T.ok("conflict: black hair + yellow eyes + slim = no conflict", not unrelated_conflict)
+
+-- Conflict with custom trait (not from catalog)
+local custom_subj = vdsl.subject("1girl")
+  :with(C.figure.eyes.purple)
+  :with(vdsl.trait("purple hair, long hair"))
+local custom_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = custom_subj } },
+})
+local custom_conflict = false
+for _, w in ipairs(custom_diag.warnings) do
+  if w:find("conflict") and w:find("purple hair") then custom_conflict = true; break end
+end
+T.ok("conflict: catalog eyes.purple vs custom 'purple hair' detected", custom_conflict)
+
+-- empty_eyes conflicts with white eyes (from existing tag)
+local empty_subj = vdsl.subject("1girl")
+  :with(C.figure.eyes.empty)
+  :with(vdsl.trait("white eyes"))
+local empty_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = empty_subj } },
+})
+local empty_conflict = false
+for _, w in ipairs(empty_diag.warnings) do
+  if w:find("conflict") and w:find("white eyes") then empty_conflict = true; break end
+end
+T.ok("conflict: empty_eyes + 'white eyes' detected", empty_conflict)
+end -- hair/eyes conflict tests
+
+do -- catalog conflict tests (scoped to avoid local var limit)
+-- === Lighting conflicts ===
+local light_subj = vdsl.subject("1girl")
+  :with(C.lighting.golden_hour)
+  :with(C.lighting.blue_hour)
+local light_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = light_subj } },
+})
+local light_conflict = false
+for _, w in ipairs(light_diag.warnings) do
+  if w:find("conflict") and w:find("blue hour") then light_conflict = true; break end
+end
+T.ok("conflict: golden_hour + blue_hour detected", light_conflict)
+
+local hilo_subj = vdsl.subject("1girl")
+  :with(C.lighting.high_key)
+  :with(C.lighting.low_key)
+local hilo_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = hilo_subj } },
+})
+local hilo_conflict = false
+for _, w in ipairs(hilo_diag.warnings) do
+  if w:find("conflict") and w:find("key lighting") then hilo_conflict = true; break end
+end
+T.ok("conflict: high_key + low_key detected", hilo_conflict)
+
+-- === Color palette conflicts ===
+local temp_subj = vdsl.subject("1girl")
+  :with(C.color.palette.warm_tones)
+  :with(C.color.palette.cool_tones)
+local temp_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = temp_subj } },
+})
+local temp_conflict = false
+for _, w in ipairs(temp_diag.warnings) do
+  if w:find("conflict") and w:find("tones") then temp_conflict = true; break end
+end
+T.ok("conflict: warm_tones + cool_tones detected", temp_conflict)
+
+local sat_subj = vdsl.subject("1girl")
+  :with(C.color.palette.vibrant)
+  :with(C.color.palette.desaturated)
+local sat_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = sat_subj } },
+})
+local sat_conflict = false
+for _, w in ipairs(sat_diag.warnings) do
+  if w:find("conflict") and w:find("vibrant") then sat_conflict = true; break end
+end
+T.ok("conflict: vibrant + desaturated detected", sat_conflict)
+
+-- === Style conflicts ===
+local style_subj = vdsl.subject("1girl")
+  :with(C.style.anime)
+  :with(C.style.photo)
+local style_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = style_subj } },
+})
+local style_conflict = false
+for _, w in ipairs(style_diag.warnings) do
+  if w:find("conflict") and (w:find("anime") or w:find("photorealistic")) then style_conflict = true; break end
+end
+T.ok("conflict: anime + photo detected", style_conflict)
+
+-- === Time conflicts ===
+local time_subj = vdsl.subject("1girl")
+  :with(C.environment.time.night)
+  :with(C.environment.time.midday)
+local time_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = time_subj } },
+})
+local time_conflict = false
+for _, w in ipairs(time_diag.warnings) do
+  if w:find("conflict") and w:find("midday") then time_conflict = true; break end
+end
+T.ok("conflict: night + midday detected", time_conflict)
+
+-- === Weather conflicts ===
+local wx_subj = vdsl.subject("1girl")
+  :with(C.environment.weather.clear_sky)
+  :with(C.environment.weather.storm)
+local wx_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = wx_subj } },
+})
+local wx_conflict = false
+for _, w in ipairs(wx_diag.warnings) do
+  if w:find("conflict") and w:find("storm") then wx_conflict = true; break end
+end
+T.ok("conflict: clear_sky + storm detected", wx_conflict)
+
+-- === Expression conflicts ===
+local expr_subj = vdsl.subject("1girl")
+  :with(C.figure.expression.smile)
+  :with(C.figure.expression.angry)
+local expr_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = expr_subj } },
+})
+local expr_conflict = false
+for _, w in ipairs(expr_diag.warnings) do
+  if w:find("conflict") and w:find("angry") then expr_conflict = true; break end
+end
+T.ok("conflict: smile + angry detected (warning, not block)", expr_conflict)
+
+local eye_subj = vdsl.subject("1girl")
+  :with(C.figure.expression.closed_eyes)
+  :with(C.figure.expression.wide_eyes)
+local eye_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = eye_subj } },
+})
+local eye_conflict = false
+for _, w in ipairs(eye_diag.warnings) do
+  if w:find("conflict") and w:find("eyes") then eye_conflict = true; break end
+end
+T.ok("conflict: closed_eyes + wide_eyes detected", eye_conflict)
+
+-- === No false positive: compatible lighting ===
+local compat_subj = vdsl.subject("1girl")
+  :with(C.lighting.golden_hour)
+  :with(C.lighting.rim_light)
+local compat_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = compat_subj } },
+})
+local compat_conflict = false
+for _, w in ipairs(compat_diag.warnings) do
+  if w:find("conflict") then compat_conflict = true; break end
+end
+T.ok("no conflict: golden_hour + rim_light compatible", not compat_conflict)
+
+do -- on_conflict strategy tests (scoped to avoid local var limit)
+local strat_subj = vdsl.subject("1girl")
+  :with(C.figure.expression.smile)
+  :with(C.figure.expression.crying)
+local strat_neg = vdsl.trait("bad")
+local strat_world = vdsl.world { model = "m.safetensors" }
+
+local function extract_pos_prompt(result)
+  for _, node in pairs(result.prompt) do
+    if node.class_type == "CLIPTextEncode" then
+      local t = node.inputs.text
+      if t and not t:find("bad") then return t end
+    end
+  end
+  return ""
+end
+
+-- warn (default): both traits present, conflicts reported
+local r_warn = vdsl.render({
+  world = strat_world,
+  cast  = { vdsl.cast { subject = strat_subj, negative = strat_neg } },
+})
+local wp = extract_pos_prompt(r_warn)
+T.ok("on_conflict=warn: smile present", wp:find("smile") ~= nil)
+T.ok("on_conflict=warn: crying present", wp:find("crying") ~= nil)
+T.ok("on_conflict=warn: conflicts returned", #r_warn.conflicts > 0)
+
+-- downweight: later trait emphasis reduced
+local r_dw = vdsl.render({
+  world = strat_world,
+  cast  = { vdsl.cast { subject = strat_subj, negative = strat_neg } },
+  on_conflict = "downweight",
+})
+local dp = extract_pos_prompt(r_dw)
+T.ok("on_conflict=downweight: smile present", dp:find("smile") ~= nil)
+T.ok("on_conflict=downweight: crying present (reduced)", dp:find("crying") ~= nil)
+T.ok("on_conflict=downweight: emphasis reduced (0.9)", dp:find("0.9") ~= nil)
+T.ok("on_conflict=downweight: original emphasis gone", not dp:find("1.2"))
+
+-- drop: later trait removed
+local r_drop = vdsl.render({
+  world = strat_world,
+  cast  = { vdsl.cast { subject = strat_subj, negative = strat_neg } },
+  on_conflict = "drop",
+})
+local drp = extract_pos_prompt(r_drop)
+T.ok("on_conflict=drop: smile present", drp:find("smile") ~= nil)
+T.ok("on_conflict=drop: crying removed", drp:find("crying") == nil)
+T.ok("on_conflict=drop: tears removed", drp:find("tears") == nil)
+
+-- ignore: no detection at all
+local r_ign = vdsl.render({
+  world = strat_world,
+  cast  = { vdsl.cast { subject = strat_subj, negative = strat_neg } },
+  on_conflict = "ignore",
+})
+local ip = extract_pos_prompt(r_ign)
+T.ok("on_conflict=ignore: smile present", ip:find("smile") ~= nil)
+T.ok("on_conflict=ignore: crying present", ip:find("crying") ~= nil)
+T.ok("on_conflict=ignore: no conflicts returned", #r_ign.conflicts == 0)
+
+-- check() with strategy shows action info
+local chk_dw = vdsl.check({
+  world = strat_world,
+  cast  = { vdsl.cast { subject = strat_subj } },
+  on_conflict = "downweight",
+})
+local has_action_msg = false
+for _, w in ipairs(chk_dw.warnings) do
+  if w:find("downweight") and w:find("emphasis") then has_action_msg = true; break end
+end
+T.ok("check(on_conflict=downweight): action info in warning", has_action_msg)
+
+local chk_drop = vdsl.check({
+  world = strat_world,
+  cast  = { vdsl.cast { subject = strat_subj } },
+  on_conflict = "drop",
+})
+local has_drop_msg = false
+for _, w in ipairs(chk_drop.warnings) do
+  if w:find("drop") and w:find("removed") then has_drop_msg = true; break end
+end
+T.ok("check(on_conflict=drop): action info in warning", has_drop_msg)
+
+-- check() returns structured conflicts
+T.ok("check: conflicts field exists", chk_dw.conflicts ~= nil)
+T.ok("check: conflicts has entries", #chk_dw.conflicts > 0)
+T.ok("check: conflict has source_text", chk_dw.conflicts[1].source_text ~= nil)
+T.ok("check: conflict has target_text", chk_dw.conflicts[1].target_text ~= nil)
+T.ok("check: conflict has matched", chk_dw.conflicts[1].matched ~= nil)
+end -- on_conflict strategy tests
+
+-- === No false positive: compatible style + expression ===
+local compat2_subj = vdsl.subject("1girl")
+  :with(C.style.anime)
+  :with(C.figure.expression.smile)
+  :with(C.lighting.soft_studio)
+local compat2_diag = vdsl.check({
+  world = vdsl.world { model = "m.safetensors" },
+  cast  = { vdsl.cast { subject = compat2_subj } },
+})
+local compat2_conflict = false
+for _, w in ipairs(compat2_diag.warnings) do
+  if w:find("conflict") then compat2_conflict = true; break end
+end
+T.ok("no conflict: anime + smile + soft_studio compatible", not compat2_conflict)
+end -- catalog conflict tests
+
 T.summary()

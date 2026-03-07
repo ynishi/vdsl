@@ -8,23 +8,28 @@
 
 local Trait   = require("vdsl.trait")
 local Catalog = require("vdsl.catalog")
+local K       = Trait  -- tag key constants
 
 return Catalog.new {
   -- === Natural light ===
   golden_hour = Trait.new("golden hour", 1.1)
     + Trait.new("warm sunlight, long shadows, sunset glow")
-    :hint("color", { brightness = 1.05, saturation = 1.1, gamma = 0.9 }),
+    :hint("color", { brightness = 1.05, saturation = 1.1, gamma = 0.9 })
+    :tag(K.CONFLICTS, "blue hour"),
 
   blue_hour = Trait.new("blue hour", 1.1)
     + Trait.new("twilight, cool ambient light, dusk")
-    :hint("color", { saturation = 1.15, gamma = 1.1 }),
+    :hint("color", { saturation = 1.15, gamma = 1.1 })
+    :tag(K.CONFLICTS, "golden hour"),
 
   overcast = Trait.new("overcast, soft diffused light, even illumination")
-    :hint("color", { contrast = 0.9 }),
+    :hint("color", { contrast = 0.9 })
+    :tag(K.CONFLICTS, "harsh sunlight"),
 
   harsh_sun = Trait.new("harsh sunlight", 1.1)
     + Trait.new("strong shadows, high contrast, midday")
-    :hint("color", { contrast = 1.15 }),
+    :hint("color", { contrast = 1.15 })
+    :tag(K.CONFLICTS, "overcast"),
 
   backlit = Trait.new("backlit", 1.1)
     + Trait.new("rim light, silhouette edge, lens flare"),
@@ -67,14 +72,17 @@ return Catalog.new {
 
   chiaroscuro = Trait.new("chiaroscuro", 1.2)
     + Trait.new("dramatic contrast, deep shadows, dark background")
-    :hint("color", { contrast = 1.3, saturation = 0.7 }),
+    :hint("color", { contrast = 1.3, saturation = 0.7 })
+    :tag(K.CONFLICTS, "high key lighting"),
 
   high_key = Trait.new("high key lighting, bright, minimal shadows, clean")
-    :hint("color", { brightness = 1.1, contrast = 0.85 }),
+    :hint("color", { brightness = 1.1, contrast = 0.85 })
+    :tag(K.CONFLICTS, "low key lighting, chiaroscuro"),
 
   low_key = Trait.new("low key lighting", 1.1)
     + Trait.new("dark, moody, deep blacks")
-    :hint("color", { brightness = 0.9, contrast = 1.2 }),
+    :hint("color", { brightness = 0.9, contrast = 1.2 })
+    :tag(K.CONFLICTS, "high key lighting"),
 
   spotlight = Trait.new("spotlight", 1.1)
     + Trait.new("single beam of light, isolated illumination, dark surroundings")

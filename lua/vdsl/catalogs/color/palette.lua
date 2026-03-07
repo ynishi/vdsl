@@ -20,24 +20,30 @@
 
 local Trait   = require("vdsl.trait")
 local Catalog = require("vdsl.catalog")
+local K       = Trait  -- tag key constants
 
 return Catalog.new {
   -- === Temperature ===
   warm_tones = Trait.new("warm tones, warm color palette", 1.1)
-    :hint("color", { gamma = 0.9, saturation = 1.1 }),
+    :hint("color", { gamma = 0.9, saturation = 1.1 })
+    :tag(K.CONFLICTS, "cool tones"),
 
   cool_tones = Trait.new("cool tones, cool color palette", 1.1)
-    :hint("color", { gamma = 1.1 }),
+    :hint("color", { gamma = 1.1 })
+    :tag(K.CONFLICTS, "warm tones"),
 
   -- === Saturation ===
   vibrant = Trait.new("vibrant colors", 1.1)
-    :hint("color", { saturation = 1.2 }),
+    :hint("color", { saturation = 1.2 })
+    :tag(K.CONFLICTS, "desaturated, muted colors, monochrome, black and white"),
 
   muted = Trait.new("muted colors, muted tones")
-    :hint("color", { saturation = 0.8 }),
+    :hint("color", { saturation = 0.8 })
+    :tag(K.CONFLICTS, "vibrant colors"),
 
   desaturated = Trait.new("desaturated, faded colors")
-    :hint("color", { saturation = 0.6 }),
+    :hint("color", { saturation = 0.6 })
+    :tag(K.CONFLICTS, "vibrant colors"),
 
   pastel = Trait.new("pastel colors", 1.1)
     + Trait.new("soft tones, light palette")
@@ -45,11 +51,13 @@ return Catalog.new {
 
   -- === Monochrome / Special Schemes ===
   monochrome = Trait.new("monochrome", 1.1)
-    :hint("color", { saturation = 0.0 }),
+    :hint("color", { saturation = 0.0 })
+    :tag(K.CONFLICTS, "vibrant colors"),
 
   black_and_white = Trait.new("black and white", 1.1)
     + Trait.new("high contrast monochrome")
-    :hint("color", { saturation = 0.0, contrast = 1.1 }),
+    :hint("color", { saturation = 0.0, contrast = 1.1 })
+    :tag(K.CONFLICTS, "vibrant colors"),
 
   sepia = Trait.new("sepia tones, rendered in sepia")
     :hint("color", { saturation = 0.15, gamma = 0.9 }),

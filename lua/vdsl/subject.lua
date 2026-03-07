@@ -178,6 +178,32 @@ function Subject:resolve()
   return table.concat(parts, ", ")
 end
 
+--- Apply conflict resolution actions to traits.
+-- Used by compiler to implement on_conflict strategies.
+-- @param actions table { [trait_index] = "drop" | number }
+--   "drop" removes the trait at that index.
+--   number adjusts emphasis by that delta (e.g. -0.3 to reduce).
+-- @return Subject new Subject with actions applied
+function Subject:apply_conflict_resolution(actions)
+  if not actions or not next(actions) then return self end
+  local new = setmetatable({}, Subject)
+  new._traits     = {}
+  new._categories = {}
+  for i, t in ipairs(self._traits) do
+    local action = actions[i]
+    if action == "drop" then
+      -- skip this trait entirely
+    elseif type(action) == "number" then
+      new._traits[#new._traits + 1] = t:boost(action)
+      new._categories[#new._categories + 1] = self._categories[i]
+    else
+      new._traits[#new._traits + 1] = t
+      new._categories[#new._categories + 1] = self._categories[i]
+    end
+  end
+  return new
+end
+
 --- Resolve traits grouped by category.
 -- Returns { category_name = { "resolved text", ... }, ... }
 -- Used by compiler strategies for prompt reordering.
