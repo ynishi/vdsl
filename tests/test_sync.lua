@@ -1,12 +1,14 @@
 --- test_sync.lua: Sync engine unit tests (in-memory DB, mock backend)
+-- Tests Domain layer (vdsl.sync) with injected mock Runtime backend.
 -- Run: lua -e "package.path='lua/?.lua;lua/?/init.lua;tests/?.lua;'..package.path" tests/test_sync.lua
 
-local DB   = require("vdsl.runtime.db")
-local Sync = require("vdsl.runtime.sync")
-local T    = require("harness")
+local DB          = require("vdsl.runtime.db")
+local Sync        = require("vdsl.sync")
+local SyncBackend = require("vdsl.runtime.sync")
+local T           = require("harness")
 
 -- ============================================================
--- Mock backend (no real network calls)
+-- Mock backend (injected into Runtime layer)
 -- ============================================================
 
 local mock_log = {}
@@ -35,10 +37,15 @@ local mock_backend = {
   exists = function(loc, path, opts)
     return true
   end,
+  hash = function(filepath)
+    -- Mock hash: use util/png if file is a valid PNG, else return nil
+    local png = require("vdsl.util.png")
+    return png.image_hash(filepath)
+  end,
 }
 
--- Install mock backend
-Sync.set_backend(mock_backend)
+-- Install mock backend into Runtime layer
+SyncBackend.set_backend(mock_backend)
 
 -- ============================================================
 -- PNG test helper
@@ -86,40 +93,41 @@ end
 -- Helpers
 -- ============================================================
 
+--- Create a fresh Sync engine with in-memory DB and mock backend.
+-- Domain layer receives the Runtime backend module (which has mock installed).
 local function fresh_sync()
   mock_log = {}
   local db = DB.open(":memory:")
-  return Sync.new(db, { pod_id = "pod_test123" }), db
+  return Sync.new(db, SyncBackend, { pod_id = "pod_test123" }), db
 end
 
 -- ============================================================
--- Tests: png.image_hash
+-- Tests: Backend IF (hash via Runtime layer)
 -- ============================================================
 
 do
   local png = require("vdsl.util.png")
 
-  -- Same pixel data, different metadata → same hash
+  -- Same pixel data, different metadata -> same hash
   local p1 = write_tmp_png("PIXEL_DATA_AAA", { vdsl = '{"gen_id":"g1"}' })
   local p2 = write_tmp_png("PIXEL_DATA_AAA", { vdsl = '{"gen_id":"g2","extra":"field"}' })
-  local h1 = png.image_hash(p1)
-  local h2 = png.image_hash(p2)
-  T.ok("image_hash: returns string", type(h1) == "string")
-  T.eq("image_hash: same pixels = same hash", h1, h2)
+  local h1 = SyncBackend.hash(p1)
+  local h2 = SyncBackend.hash(p2)
+  T.ok("backend.hash: returns string", type(h1) == "string")
+  T.eq("backend.hash: same pixels = same hash", h1, h2)
 
-  -- Different pixel data → different hash
+  -- Different pixel data -> different hash
   local p3 = write_tmp_png("PIXEL_DATA_BBB", { vdsl = '{"gen_id":"g1"}' })
-  local h3 = png.image_hash(p3)
-  T.ok("image_hash: diff pixels = diff hash", h1 ~= h3)
+  local h3 = SyncBackend.hash(p3)
+  T.ok("backend.hash: diff pixels = diff hash", h1 ~= h3)
 
-  -- Cleanup
   os.remove(p1)
   os.remove(p2)
   os.remove(p3)
 end
 
 -- ============================================================
--- Tests: png.identity
+-- Tests: png.identity (util layer, not backend)
 -- ============================================================
 
 do
@@ -139,7 +147,6 @@ end
 
 do
   local sync, db = fresh_sync()
-  -- Table should exist (created by migration in DB.open)
   local rows = db:query("SELECT name FROM sqlite_master WHERE type='table' AND name='sync_state'")
   T.eq("sync_state table exists", #rows, 1)
   db:close()
@@ -250,7 +257,7 @@ do
 end
 
 -- ============================================================
--- Tests: push_file (success)
+-- Tests: push_file (success) — verifies Domain -> Runtime dispatch
 -- ============================================================
 
 do
@@ -266,12 +273,12 @@ do
   T.ok("push_file success", ok)
   T.eq("push_file no error", err, nil)
 
-  -- Verify backend was called
+  -- Verify backend was called (Domain dispatched to Runtime)
   T.eq("push_file backend called", #mock_log, 1)
   T.eq("push_file op", mock_log[1].op, "push")
   T.eq("push_file dest_loc", mock_log[1].dest_loc, "cloud")
 
-  -- Verify state updated
+  -- Verify state updated (Domain state machine)
   local state = sync:get("/output/push_test.png")
   T.eq("push_file cloud -> present", state.loc_cloud, "present")
   T.ok("push_file synced_at set", state.synced_at ~= nil)
@@ -280,7 +287,7 @@ do
 end
 
 -- ============================================================
--- Tests: push_file (failure)
+-- Tests: push_file (failure) — state rollback
 -- ============================================================
 
 do
@@ -318,7 +325,7 @@ do
   })
   T.ok("pull_file success", ok)
 
-  -- Should be auto-registered
+  -- Should be auto-registered (Domain logic)
   local state = sync:get("/output/remote.png")
   T.ok("pull_file auto-registered", state ~= nil)
   T.eq("pull_file loc_local present", state.loc_local, "present")
@@ -405,7 +412,6 @@ do
   T.eq("register_generation image gen_id", rows[1].gen_id, "gen-xyz-001")
   T.ok("register_generation image has hash", rows[1].file_hash ~= nil)
 
-  -- Cleanup
   os.remove(png_path)
   os.remove(recipe_path)
 
@@ -413,7 +419,7 @@ do
 end
 
 -- ============================================================
--- Tests: image_hash duplicate detection
+-- Tests: image_hash duplicate detection (Domain logic)
 -- ============================================================
 
 do
@@ -428,7 +434,7 @@ do
   T.ok("hash dup: first register ok", row1 ~= nil)
   T.eq("hash dup: first not duplicate", row1.is_duplicate, nil)
 
-  -- Same hash, different path → duplicate
+  -- Same hash, different path -> duplicate
   local row2 = sync:register("/output/img_b.png", Sync.TYPE_IMAGE, {
     file_hash = "deadbeef12345678",
     loc_local = Sync.PRESENT,
@@ -436,7 +442,7 @@ do
   T.ok("hash dup: detected", row2.is_duplicate == true)
   T.eq("hash dup: duplicate_of", row2.duplicate_of, "/output/img_a.png")
 
-  -- Different hash, different path → not duplicate
+  -- Different hash, different path -> not duplicate
   local row3 = sync:register("/output/img_c.png", Sync.TYPE_IMAGE, {
     file_hash = "cafebabe87654321",
     loc_local = Sync.PRESENT,
@@ -465,15 +471,15 @@ do
   })
   sync:set_state("/output/synced.png", "cloud", Sync.PRESENT)
 
-  -- Re-register same hash (metadata update only) → cloud stays present
-  local row = sync:register("/output/synced.png", Sync.TYPE_IMAGE, {
+  -- Re-register same hash (metadata update only) -> cloud stays present
+  sync:register("/output/synced.png", Sync.TYPE_IMAGE, {
     file_hash = "aabb000000000001",  -- same hash
     file_size = 99999,
   })
   local state = sync:get("/output/synced.png")
   T.eq("meta update: cloud stays present", state.loc_cloud, "present")
 
-  -- Re-register with DIFFERENT hash (pixel data changed) → cloud becomes pending
+  -- Re-register with DIFFERENT hash (pixel data changed) -> cloud becomes pending
   sync:register("/output/synced.png", Sync.TYPE_IMAGE, {
     file_hash = "ccdd000000000002",  -- different hash
     file_size = 88888,
@@ -491,21 +497,61 @@ end
 
 do
   T.err("Sync.new without db errors", function()
-    Sync.new(nil)
+    Sync.new(nil, SyncBackend)
+  end)
+
+  T.err("Sync.new without backend errors", function()
+    local db = DB.open(":memory:")
+    Sync.new(db, nil)
   end)
 end
 
 -- ============================================================
--- Tests: set_backend
+-- Tests: Runtime set_backend validation
 -- ============================================================
 
 do
   T.err("set_backend non-table errors", function()
-    Sync.set_backend("not a table")
+    SyncBackend.set_backend("not a table")
   end)
 
   -- Restore mock
-  Sync.set_backend(mock_backend)
+  SyncBackend.set_backend(mock_backend)
+end
+
+-- ============================================================
+-- Tests: Domain/Runtime boundary — backend is injected, not hardcoded
+-- ============================================================
+
+do
+  -- Verify Domain Sync uses injected backend, not global state
+  local call_log = {}
+  local custom_backend = {
+    push = function(src, dest_loc, dest_path, opts)
+      call_log[#call_log + 1] = "custom_push"
+      return true
+    end,
+    pull = function(...) return true end,
+    list = function(...) return {} end,
+    exists = function(...) return true end,
+    hash = function(...) return nil end,
+  }
+
+  -- Create a Sync with custom backend module wrapper
+  local custom_rt = {}
+  setmetatable(custom_rt, { __index = custom_backend })
+  custom_rt.set_backend = function() end  -- no-op for test
+
+  local db = DB.open(":memory:")
+  local sync = Sync.new(db, custom_rt, {})
+  sync:register("/test/boundary.png", Sync.TYPE_IMAGE, {
+    loc_local = Sync.PRESENT,
+    loc_cloud = Sync.PENDING,
+  })
+  sync:push_file("/test/boundary.png", "cloud", "remote/boundary.png")
+  T.eq("boundary: custom backend called", #call_log, 1)
+  T.eq("boundary: correct function", call_log[1], "custom_push")
+  db:close()
 end
 
 -- ============================================================

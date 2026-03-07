@@ -233,6 +233,10 @@ M.repo = setmetatable({}, {
 -- vdsl.sync:pending(loc) → files needing sync
 -- vdsl.sync:summary() → counts by state/location
 --
+-- Architecture:
+--   Domain:  vdsl.sync (business logic, state machine)
+--   Runtime: vdsl.runtime.sync (file transfer + hash backend)
+--
 -- opts: { pod_id, ssh_key, bucket }
 -- Requires repo to be initialized first (shared DB).
 do
@@ -245,7 +249,8 @@ do
     if _sync_instance and not opts then
       return _sync_instance
     end
-    local SyncEngine = require("vdsl.runtime.sync")
+    local SyncEngine = require("vdsl.sync")
+    local SyncBackend = require("vdsl.runtime.sync")
     -- Share DB with repo (lazy-init repo first)
     local repo_inner = rawget(M.repo, "_inner")
     if not repo_inner then
@@ -258,15 +263,16 @@ do
       local DB = require("vdsl.runtime.db")
       db = DB.open()
     end
-    _sync_instance = SyncEngine.new(db, opts)
+    _sync_instance = SyncEngine.new(db, SyncBackend, opts)
     return _sync_instance
   end
 
   --- Set a custom sync backend (e.g. Rust/mlua).
+  -- Replaces the runtime/sync backend (push/pull/list/exists/hash).
   -- @param backend table or nil to reset
   function M.set_sync_backend(backend)
-    local SyncEngine = require("vdsl.runtime.sync")
-    SyncEngine.set_backend(backend)
+    local SyncBackend = require("vdsl.runtime.sync")
+    SyncBackend.set_backend(backend)
   end
 end
 

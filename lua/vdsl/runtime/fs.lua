@@ -10,6 +10,7 @@
 --   exists(path) -> boolean             file/dir exists
 --   ls(dir) -> string[]                 list directory entries
 --   find(dir, pattern) -> string[]      recursive file search (glob pattern)
+--   file_size(path) -> integer|nil       file size in bytes (nil if missing)
 --   sleep(seconds)                      sleep
 
 local shell = require("vdsl.util.shell")
@@ -107,6 +108,14 @@ function default.find(dir, pattern)
   return files
 end
 
+function default.file_size(path)
+  local f = io.open(path, "rb")
+  if not f then return nil end
+  local size = f:seek("end")
+  f:close()
+  return size
+end
+
 function default.sleep(seconds)
   local ok, socket = pcall(require, "socket")
   if ok and socket and socket.sleep then
@@ -162,6 +171,17 @@ end
 
 function M.find(dir, pattern)
   return backend().find(dir, pattern)
+end
+
+function M.file_size(path)
+  local b = backend()
+  if b.file_size then return b.file_size(path) end
+  -- Fallback for backends that don't implement file_size
+  local f = io.open(path, "rb")
+  if not f then return nil end
+  local size = f:seek("end")
+  f:close()
+  return size
 end
 
 function M.sleep(seconds)
