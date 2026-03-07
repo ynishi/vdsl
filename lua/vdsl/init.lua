@@ -225,6 +225,51 @@ M.repo = setmetatable({}, {
   end,
 })
 
+--- Lazy-loaded Sync engine (3-location file sync).
+-- vdsl.sync(opts) → Sync instance (shares DB with repo)
+-- vdsl.sync:register(path, type, opts) → sync_state row
+-- vdsl.sync:push_file(path, dest, dest_path) → ok, err
+-- vdsl.sync:pull_file(src, src_path, dest_path) → ok, err
+-- vdsl.sync:pending(loc) → files needing sync
+-- vdsl.sync:summary() → counts by state/location
+--
+-- opts: { pod_id, ssh_key, bucket }
+-- Requires repo to be initialized first (shared DB).
+do
+  local _sync_instance = nil
+
+  --- Create or return the Sync engine.
+  -- @param opts table|nil  { pod_id, ssh_key, bucket }
+  -- @return Sync
+  function M.sync(opts)
+    if _sync_instance and not opts then
+      return _sync_instance
+    end
+    local SyncEngine = require("vdsl.runtime.sync")
+    -- Share DB with repo (lazy-init repo first)
+    local repo_inner = rawget(M.repo, "_inner")
+    if not repo_inner then
+      -- Trigger repo initialization
+      local _ = M.repo.ensure_workspace
+      repo_inner = rawget(M.repo, "_inner")
+    end
+    local db = repo_inner and repo_inner.db
+    if not db then
+      local DB = require("vdsl.runtime.db")
+      db = DB.open()
+    end
+    _sync_instance = SyncEngine.new(db, opts)
+    return _sync_instance
+  end
+
+  --- Set a custom sync backend (e.g. Rust/mlua).
+  -- @param backend table or nil to reset
+  function M.set_sync_backend(backend)
+    local SyncEngine = require("vdsl.runtime.sync")
+    SyncEngine.set_backend(backend)
+  end
+end
+
 --- Lazy-loaded training module.
 -- vdsl.training.archetype() → define training concept
 -- vdsl.training.grid.auto() → dataset diversity

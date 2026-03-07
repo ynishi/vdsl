@@ -299,4 +299,87 @@ function M.inject_text_to(src_path, dst_path, text_chunks)
   return M.inject_text(dst_path, text_chunks)
 end
 
+-- ============================================================
+-- Image identity: hash of pixel data only (IHDR + IDAT chunks)
+-- ============================================================
+
+--- Compute a content hash of the image data only (IHDR + all IDAT chunks).
+-- tEXt, iTXt, zTXt and other metadata chunks are excluded,
+-- so the hash is stable across metadata updates.
+-- Uses DJB2 (fast, no C dependency). Sufficient for identity check,
+-- not for cryptographic purposes.
+-- @param filepath string path to PNG file
+-- @return string|nil  hex hash (16 chars), nil on error
+-- @return string|nil  error message
+function M.image_hash(filepath)
+  local content = fs.read_binary(filepath)
+  if not content or #content < 8 then
+    return nil, "png.image_hash: file too small"
+  end
+  if content:sub(1, 8) ~= PNG_SIG then
+    return nil, "png.image_hash: not a valid PNG file"
+  end
+
+  -- DJB2 hash state
+  local h = 5381
+  local pos = 9
+
+  while pos + 7 <= #content do
+    local length = read_uint32_be(content, pos)
+    local chunk_type = content:sub(pos + 4, pos + 7)
+    local chunk_end = pos + 12 + length - 1
+
+    if chunk_end > #content then break end
+
+    if chunk_type == "IHDR" or chunk_type == "IDAT" then
+      -- Hash: chunk type + chunk data (exclude length prefix and CRC)
+      local data = content:sub(pos + 4, pos + 7 + length)
+      for i = 1, #data do
+        h = ((h * 33) + data:byte(i)) % 0x100000000
+      end
+    elseif chunk_type == "IEND" then
+      break
+    end
+
+    pos = pos + 12 + length
+  end
+
+  return string.format("%016x", h)
+end
+
+--- Extract identity info from a PNG for sync purposes.
+-- Returns image_hash (pixel data only) and gen_id (from vdsl tEXt chunk if present).
+-- @param filepath string
+-- @return table|nil  { image_hash, gen_id, file_size }
+-- @return string|nil  error message
+function M.identity(filepath)
+  local hash, err = M.image_hash(filepath)
+  if not hash then return nil, err end
+
+  -- Get gen_id from vdsl metadata if available
+  local chunks = M.read_text(filepath)
+  local gen_id = nil
+  if chunks and chunks["vdsl"] then
+    local json = require("vdsl.util.json")
+    local ok, recipe = pcall(json.decode, chunks["vdsl"])
+    if ok and type(recipe) == "table" then
+      gen_id = recipe.gen_id
+    end
+  end
+
+  -- File size
+  local file_size = nil
+  local f = io.open(filepath, "rb")
+  if f then
+    file_size = f:seek("end")
+    f:close()
+  end
+
+  return {
+    image_hash = hash,
+    gen_id     = gen_id,
+    file_size  = file_size,
+  }
+end
+
 return M

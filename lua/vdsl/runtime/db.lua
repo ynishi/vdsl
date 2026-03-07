@@ -62,6 +62,28 @@ local MIGRATE = [[
 ALTER TABLE generations ADD COLUMN meta TEXT;
 ]]
 
+-- Migration: sync_state table for 3-location sync (Local/Pod/Cloud)
+local MIGRATE_SYNC = [[
+CREATE TABLE IF NOT EXISTS sync_state (
+    id          TEXT PRIMARY KEY,
+    file_path   TEXT NOT NULL,
+    file_type   TEXT NOT NULL,
+    file_hash   TEXT,
+    file_size   INTEGER,
+    gen_id      TEXT REFERENCES generations(id),
+    loc_local   TEXT NOT NULL DEFAULT 'unknown',
+    loc_pod     TEXT NOT NULL DEFAULT 'unknown',
+    loc_cloud   TEXT NOT NULL DEFAULT 'unknown',
+    updated_at  TEXT NOT NULL,
+    synced_at   TEXT,
+    error       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sync_file_path ON sync_state(file_path);
+CREATE INDEX IF NOT EXISTS idx_sync_file_type ON sync_state(file_type);
+CREATE INDEX IF NOT EXISTS idx_sync_gen_id    ON sync_state(gen_id);
+CREATE INDEX IF NOT EXISTS idx_sync_pending   ON sync_state(loc_local, loc_pod, loc_cloud);
+]]
+
 -- ============================================================
 -- Default backend (lsqlite3complete)
 -- ============================================================
@@ -88,8 +110,12 @@ local function make_default_conn(path)
       error("prepare failed: " .. raw_db:errmsg() .. "\nSQL: " .. sql, 2)
     end
     stmt:bind_values(table.unpack(packed_params, 1, packed_params.n))
-    stmt:step()
+    local rc = stmt:step()
     stmt:finalize()
+    -- SQLITE_DONE=101, SQLITE_ROW=100; anything else is an error
+    if rc ~= sqlite3.DONE and rc ~= sqlite3.ROW then
+      error("step failed (" .. tostring(rc) .. "): " .. raw_db:errmsg() .. "\nSQL: " .. sql, 2)
+    end
   end
 
   function conn:query(sql, packed_params)
@@ -143,6 +169,8 @@ function DB.open(path)
   conn:exec(SCHEMA)
   -- Migration (idempotent: ALTER ADD fails if column exists)
   pcall(function() conn:exec(MIGRATE) end)
+  -- Migration: sync_state (idempotent via CREATE IF NOT EXISTS)
+  conn:exec(MIGRATE_SYNC)
 
   return setmetatable({ _conn = conn, _path = path }, DB)
 end
