@@ -3,7 +3,7 @@
 
 local vdsl   = require("vdsl")
 local decode = require("vdsl.compilers.comfyui.decoder")
-local png    = require("vdsl.util.png")
+local png    = require("vdsl.runtime.png")
 local json   = require("vdsl.util.json")
 local T      = require("harness")
 

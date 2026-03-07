@@ -1,5 +1,5 @@
 --- PNG: tEXt metadata abstraction layer.
--- Backend-agnostic like FS and Transport. Default: util/png.lua (Pure Lua).
+-- Backend-agnostic like FS and Transport. Default: runtime/png_default.lua (Pure Lua).
 -- Custom backends injected via set_backend() (e.g. mlua/Rust pngmeta).
 --
 -- Backend interface (table with functions):
@@ -9,6 +9,8 @@
 --       Write tEXt chunks (inserted before IEND, overwrites same key). In-place.
 --   inject_text_to(src, dst, chunks) -> boolean, string|nil
 --       Copy src → dst, then inject. Non-destructive.
+--   image_hash(filepath) -> string|nil
+--       Content identity hash (DJB2 of IHDR+IDAT). For duplicate detection.
 --
 -- Higher-level APIs (read_comfy) are implemented in this module directly,
 -- delegating to read_text for the low-level work.
@@ -27,14 +29,14 @@ function M.set_backend(backend)
 end
 
 -- ============================================================
--- Default backend (lazy-load util/png.lua)
+-- Default backend (lazy-load runtime/png_default.lua)
 -- ============================================================
 
 local _default = nil
 
 local function default()
   if not _default then
-    _default = require("vdsl.util.png")
+    _default = require("vdsl.runtime.png_default")
   end
   return _default
 end
@@ -97,6 +99,43 @@ function M.read_comfy(filepath, json_mod)
     if ok then result.workflow = decoded end
   end
   return result
+end
+
+--- Compute content identity hash for a PNG file (DJB2 of IHDR+IDAT).
+-- Used by sync for duplicate detection.
+-- @param filepath string path to local PNG file
+-- @return string|nil hex hash, nil on error
+function M.image_hash(filepath)
+  return backend().image_hash(filepath)
+end
+
+--- Extract full identity info from a PNG: image_hash + gen_id + file_size.
+-- High-level convenience combining image_hash, read_text, and fs.file_size.
+-- @param filepath string path to local PNG file
+-- @return table|nil { image_hash, gen_id, file_size }
+-- @return string|nil error message
+function M.identity(filepath)
+  local hash, err = M.image_hash(filepath)
+  if not hash then return nil, err end
+
+  local chunks = M.read_text(filepath)
+  local gen_id = nil
+  if chunks and chunks["vdsl"] then
+    local json = require("vdsl.util.json")
+    local ok, recipe = pcall(json.decode, chunks["vdsl"])
+    if ok and type(recipe) == "table" then
+      gen_id = recipe.gen_id
+    end
+  end
+
+  local fs = require("vdsl.runtime.fs")
+  local file_size = fs.file_size(filepath)
+
+  return {
+    image_hash = hash,
+    gen_id     = gen_id,
+    file_size  = file_size,
+  }
 end
 
 -- ============================================================

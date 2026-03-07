@@ -220,7 +220,7 @@ repo:close()
 -- ============================================================
 -- reindex: PNG scan → DB rebuild
 -- ============================================================
-local png_mod = require("vdsl.util.png")
+local png_mod = require("vdsl.runtime.png")
 local json_mod = require("vdsl.util.json")
 
 -- Create a temp directory with a test PNG containing vdsl v2 chunk

@@ -9,7 +9,7 @@ local T    = require("harness")
 local vdsl = require("vdsl")
 local json = require("vdsl.util.json")
 local transport = require("vdsl.runtime.transport")
-local png_mod   = require("vdsl.util.png")
+local png_mod   = require("vdsl.runtime.png")
 
 print("=== Runner Pipeline Tests ===")
 

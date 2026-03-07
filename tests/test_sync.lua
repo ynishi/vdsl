@@ -39,7 +39,7 @@ local mock_backend = {
   end,
   hash = function(filepath)
     -- Mock hash: use util/png if file is a valid PNG, else return nil
-    local png = require("vdsl.util.png")
+    local png = require("vdsl.runtime.png")
     return png.image_hash(filepath)
   end,
 }
@@ -106,7 +106,7 @@ end
 -- ============================================================
 
 do
-  local png = require("vdsl.util.png")
+  local png = require("vdsl.runtime.png")
 
   -- Same pixel data, different metadata -> same hash
   local p1 = write_tmp_png("PIXEL_DATA_AAA", { vdsl = '{"gen_id":"g1"}' })
@@ -131,7 +131,7 @@ end
 -- ============================================================
 
 do
-  local png = require("vdsl.util.png")
+  local png = require("vdsl.runtime.png")
   local p = write_tmp_png("IDENTITY_TEST", { vdsl = '{"gen_id":"gen-id-xyz"}' })
   local info, err = png.identity(p)
   T.ok("identity: returns table", info ~= nil)

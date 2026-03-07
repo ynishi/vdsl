@@ -109,12 +109,12 @@ function default.exists(loc, path, opts)
 end
 
 --- Compute content identity hash for a local file.
--- Default: delegates to util/png.image_hash (DJB2 of IHDR+IDAT).
--- Rust backend can replace this with a faster implementation.
+-- Default: delegates to runtime/png.image_hash (DJB2 of IHDR+IDAT).
+-- Rust backend can replace this via runtime/png.set_backend().
 -- @param filepath string  path to local PNG file
 -- @return string|nil  hex hash, nil on error
 function default.hash(filepath)
-  local png = require("vdsl.util.png")
+  local png = require("vdsl.runtime.png")
   return png.image_hash(filepath)
 end
 

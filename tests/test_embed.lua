@@ -2,7 +2,7 @@
 -- Run: lua -e "package.path='lua/?.lua;lua/?/init.lua;tests/?.lua;'..package.path" tests/test_embed.lua
 
 local vdsl   = require("vdsl")
-local png    = require("vdsl.util.png")
+local png    = require("vdsl.runtime.png")
 local json   = require("vdsl.util.json")
 local recipe = require("vdsl.runtime.serializer")
 local Entity = require("vdsl.entity")

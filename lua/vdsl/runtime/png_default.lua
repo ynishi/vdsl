@@ -1,13 +1,11 @@
---- PNG: Pure Lua reader/writer for PNG tEXt metadata chunks.
+--- PNG default backend: Pure Lua reader/writer for PNG tEXt metadata chunks.
+-- This is the fallback implementation for runtime/png.lua.
+-- Do NOT require this module directly — use runtime/png.lua instead.
+-- Custom backends (e.g. Rust/mlua pngmeta) replace this via set_backend().
+--
 -- Read and inject text chunks (keyword → value) without C dependencies.
 -- ComfyUI embeds "prompt" and "workflow" as tEXt chunks.
 -- vdsl adds a "vdsl" chunk for semantic recipe preservation.
---
--- Usage:
---   local png = require("vdsl.util.png")
---   local chunks, err = png.read_text("output.png")
---   if chunks then print(chunks["prompt"]) end
---   png.inject_text("output.png", { vdsl = recipe_json })
 
 local fs = require("vdsl.runtime.fs")
 
@@ -368,12 +366,7 @@ function M.identity(filepath)
   end
 
   -- File size
-  local file_size = nil
-  local f = io.open(filepath, "rb")
-  if f then
-    file_size = f:seek("end")
-    f:close()
-  end
+  local file_size = fs.file_size(filepath)
 
   return {
     image_hash = hash,
