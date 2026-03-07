@@ -2,9 +2,9 @@
 -- Run: lua -e "package.path='lua/?.lua;lua/?/init.lua;tests/?.lua;'..package.path" tests/test_embed.lua
 
 local vdsl   = require("vdsl")
-local png    = require("vdsl.png")
-local json   = require("vdsl.json")
-local recipe = require("vdsl.recipe")
+local png    = require("vdsl.util.png")
+local json   = require("vdsl.util.json")
+local recipe = require("vdsl.runtime.serializer")
 local Entity = require("vdsl.entity")
 local T      = require("harness")
 
@@ -201,7 +201,7 @@ local render_opts = {
     vdsl.cast {
       subject  = vdsl.subject("warrior"):with(vdsl.trait("detailed face", 1.3)):quality("high"),
       negative = vdsl.trait("ugly, blurry"),
-      lora     = { vdsl.lora("detail.safetensors", 0.6) },
+      lora     = { { name = "detail.safetensors", weight = 0.6 } },
     },
   },
   seed  = 42,
@@ -274,22 +274,6 @@ T.ok("hint rt: face",      hints.face ~= nil)
 T.eq("hint rt: fidelity",  hints.face.fidelity, 0.7)
 T.ok("hint rt: hires",     hints.hires ~= nil)
 T.eq("hint rt: scale",     hints.hires.scale, 1.5)
-
--- ============================================================
--- Recipe with theme reference
--- ============================================================
-
-local theme_opts = {
-  world = vdsl.world { model = "test.safetensors" },
-  cast  = { vdsl.cast { subject = "cat" } },
-  theme = vdsl.themes.cinema,
-  seed  = 42,
-}
-
-local theme_ser = recipe.serialize(theme_opts)
-local theme_deser = recipe.deserialize(theme_ser)
-T.ok("theme rt: loaded",   theme_deser.theme ~= nil)
-T.eq("theme rt: name",     theme_deser.theme.name, "cinema")
 
 -- ============================================================
 -- Recipe with Stage

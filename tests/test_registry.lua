@@ -2,8 +2,8 @@
 -- Run: lua -e "package.path='lua/?.lua;lua/?/init.lua;tests/?.lua;'..package.path" tests/test_registry.lua
 
 local vdsl    = require("vdsl")
-local json    = require("vdsl.json")
-local matcher = require("vdsl.matcher")
+local json    = require("vdsl.util.json")
+local matcher = require("vdsl.util.matcher")
 local T       = require("harness")
 
 -- ============================================================

@@ -5,6 +5,11 @@ local Entity = require("vdsl.entity")
 
 local Stage = Entity.define("stage")
 
+local VALID_PREPROCESSORS = {
+  canny = true, depth = true, lineart = true,
+  scribble = true, openpose = true, dwpose = true,
+}
+
 --- Validate a single ControlNet entry.
 local function validate_controlnet(cn, index)
   if type(cn) ~= "table" then
@@ -15,6 +20,10 @@ local function validate_controlnet(cn, index)
   end
   if not cn.image or cn.image == "" then
     error("Stage: controlnet[" .. index .. "].image is required", 3)
+  end
+  if cn.preprocessor and not VALID_PREPROCESSORS[cn.preprocessor] then
+    error("Stage: controlnet[" .. index .. "].preprocessor '"
+      .. cn.preprocessor .. "' is not valid", 3)
   end
 end
 
@@ -32,9 +41,12 @@ function Stage.new(opts)
     for i, cn in ipairs(opts.controlnet) do
       validate_controlnet(cn, i)
       controlnets[i] = {
-        type     = cn.type,
-        image    = cn.image,
-        strength = cn.strength or 1.0,
+        type          = cn.type,
+        image         = cn.image,
+        strength      = cn.strength or 1.0,
+        preprocessor  = cn.preprocessor,
+        start_percent = cn.start_percent or 0.0,
+        end_percent   = cn.end_percent or 1.0,
       }
     end
   end

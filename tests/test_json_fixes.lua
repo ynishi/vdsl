@@ -1,7 +1,7 @@
 --- test_json_fixes.lua: Tests for json.lua fixes (empty array, literal validation, surrogate pairs).
 -- Run: lua -e "package.path='lua/?.lua;lua/?/init.lua;tests/?.lua;'..package.path" tests/test_json_fixes.lua
 
-local json = require("vdsl.json")
+local json = require("vdsl.util.json")
 local T    = require("harness")
 
 print("=== JSON Fixes Tests ===")

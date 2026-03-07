@@ -6,27 +6,29 @@
 --   local walking = vdsl.trait("walking pose, full body")
 --   local cat = vdsl.subject("cat"):with(walking):quality("high"):style("anime")
 --   local ugly = vdsl.trait("blurry, ugly")
---   local w = vdsl.world { model = "sd_xl_base_1.0" }
---   local c = vdsl.cast { subject = cat, negative = ugly,
---                          lora = { vdsl.lora("detail", vdsl.weight.heavy) } }
---   local r = vdsl.render { world = w, cast = { c }, theme = vdsl.themes.cinema }
+--   local w = vdsl.world { model = "sd_xl_base_1.0",
+--                          lora = { style = { name = "detail.safetensors", weight = 0.8 } } }
+--   local c = vdsl.cast { subject = cat:hint("lora", "style"), negative = ugly }
+--   local r = vdsl.render { world = w, cast = { c } }
 --   print(r.json)
 
-local Entity   = require("vdsl.entity")
-local Trait    = require("vdsl.trait")
-local Subject  = require("vdsl.subject")
-local Weight   = require("vdsl.weight")
-local World    = require("vdsl.world")
-local Cast     = require("vdsl.cast")
-local Stage    = require("vdsl.stage")
+local Entity     = require("vdsl.entity")
+local Trait      = require("vdsl.trait")
+local Subject    = require("vdsl.subject")
+local Weight     = require("vdsl.weight")
+local World      = require("vdsl.world")
+local Cast       = require("vdsl.cast")
+local Stage      = require("vdsl.stage")
 local Post       = require("vdsl.post")
 local Catalog    = require("vdsl.catalog")
-local Theme      = require("vdsl.theme")
 local compiler   = require("vdsl.compiler")
-local decode_mod = require("vdsl.decode")
-local png_mod    = require("vdsl.png")
-local recipe_mod = require("vdsl.recipe")
-local json_mod   = require("vdsl.json")
+local decode_mod = require("vdsl.compilers.comfyui.decoder")
+local png_mod    = require("vdsl.runtime.png")
+local serializer = require("vdsl.runtime.serializer")
+local json_mod   = require("vdsl.util.json")
+local fs         = require("vdsl.runtime.fs")
+local emit_mod   = require("vdsl.runtime.emit")
+local config_mod = require("vdsl.config")
 local M = {}
 
 M._VERSION = "0.1.0"
@@ -70,47 +72,171 @@ function M.catalog(entries)
   return Catalog.new(entries)
 end
 
---- Create a Theme (named Catalog with metadata and negatives).
--- @param def table { name, category, tags, traits, negatives }
--- @return Theme
-function M.theme(def)
-  return Theme.new(def)
-end
 
---- Create a LoRA config (convenience for Cast.lora entries).
--- @param name string LoRA filename
--- @param weight number|Weight|nil weight (default 1.0)
--- @return table { name, weight }
-function M.lora(name, weight)
-  if type(name) ~= "string" or name == "" then
-    error("vdsl.lora: name is required", 2)
-  end
-  return { name = name, weight = weight or 1.0 }
-end
+-- vdsl.lora() removed.
+-- LoRA is a World resource, not a DSL entity constructor.
+-- Use:  hint("lora", "key")  on Traits (Compiler resolves via World)
+-- Or:   cast.lora = { { name = "file.safetensors", weight = 1.0 } }  (direct)
+
+--- Layered config (project + user + env).
+-- vdsl.config.get("model") → resolved model name
+-- vdsl.config.load()        → full merged config table
+-- vdsl.config.reload()      → force re-read
+M.config = config_mod
 
 --- Semantic weight values.
 M.weight = Weight
 
--- ============================================================
--- Built-in themes (lazy-loaded)
--- ============================================================
+--- Tag key constants (from Trait module).
+-- Usage: vdsl.trait("blue eyes"):tag(vdsl.K.TIER, "S")
+M.K = Trait
 
-M.themes = setmetatable({}, {
+--- Atmosphere: emotional tone Traits (callable + presets from catalog).
+-- Returns plain Traits — composable with lighting, effect, camera via +.
+-- vdsl.atmosphere("custom mood")  → Trait
+-- vdsl.atmosphere.serene          → Trait (from catalogs.atmosphere)
+-- vdsl.atmosphere.serene + C.lighting.rembrandt → works naturally
+M.atmosphere = setmetatable({}, {
+  __call = function(_, mood, emphasis)
+    return Trait.new(mood, emphasis)
+  end,
   __index = function(t, name)
-    local ok, theme = pcall(require, "vdsl.themes." .. name)
-    if ok then
-      rawset(t, name, theme)
-      return theme
+    local cat = M.catalogs.atmosphere
+    if cat then
+      local trait = cat[name]
+      if trait then
+        rawset(t, name, trait)
+        return trait
+      end
     end
     return nil
   end,
 })
 
 -- ============================================================
+-- Built-in catalogs (lazy-loaded) + user overlay
+-- ============================================================
+
+-- User catalog directories registered via use_catalogs().
+-- Each entry is an absolute or relative directory path.
+local _user_catalog_dirs = {}
+
+M.catalogs = setmetatable({}, {
+  __index = function(t, name)
+    -- 1. Try built-in
+    local ok, cat = pcall(require, "vdsl.catalogs." .. name)
+    if ok then
+      rawset(t, name, cat)
+    end
+    -- 2. Overlay user catalogs (merge into built-in, or create new)
+    for _, dir in ipairs(_user_catalog_dirs) do
+      local path = dir .. "/" .. name .. ".lua"
+      if fs.exists(path) then
+        local loader = loadfile(path)
+        if loader then
+          local user_ok, user_cat = pcall(loader)
+          if user_ok and type(user_cat) == "table" then
+            local existing = rawget(t, name)
+            if existing and type(existing) == "table" then
+              -- Merge into existing (extend)
+              Catalog.extend(existing, user_cat)
+            else
+              -- New catalog from user dir
+              local validated = Catalog.new(user_cat)
+              rawset(t, name, validated)
+            end
+          end
+        end
+      end
+    end
+    return rawget(t, name)
+  end,
+})
+
+--- Register a user catalog directory for overlay.
+-- Lua files in the directory are loaded and merged with built-in catalogs.
+-- e.g., dir/effect.lua → entries merged into C.effect
+-- e.g., dir/weapon.lua → new C.weapon catalog created
+-- Can be called multiple times; directories are searched in registration order.
+-- @param dir string path to directory containing catalog .lua files
+function M.use_catalogs(dir)
+  if type(dir) ~= "string" then
+    error("use_catalogs: expected a directory path string", 2)
+  end
+  _user_catalog_dirs[#_user_catalog_dirs + 1] = dir
+  -- Invalidate cached catalogs so next access triggers re-merge.
+  -- Only clear catalogs that have a corresponding file in the new dir.
+  for name in pairs(M.catalogs) do
+    local path = dir .. "/" .. name .. ".lua"
+    if fs.exists(path) then
+      rawset(M.catalogs, name, nil)
+    end
+  end
+end
+
+--- List registered user catalog directories.
+-- @return table array of directory paths
+function M.catalog_dirs()
+  local dirs = {}
+  for i, d in ipairs(_user_catalog_dirs) do dirs[i] = d end
+  return dirs
+end
+
+-- ============================================================
 -- Type system (exposed for advanced usage)
 -- ============================================================
 
 M.entity = Entity
+
+-- ============================================================
+-- Preflight (model availability check)
+-- ============================================================
+
+--- Lazy-loaded preflight module.
+-- vdsl.preflight.extract(prompt) → required models
+-- vdsl.preflight.check(required, available) → report
+M.preflight = setmetatable({}, {
+  __index = function(t, k)
+    local mod = require("vdsl.compilers.comfyui.preflight")
+    for mk, mv in pairs(mod) do rawset(t, mk, mv) end
+    return t[k]
+  end,
+})
+
+--- Lazy-loaded Repository (Workspace > Run > Generation).
+-- vdsl.repo:ensure_workspace("name") → workspace
+-- vdsl.repo:create_run(ws_id, script) → run
+-- vdsl.repo:save({ run_id, seed, model, output, recipe }) → gen
+-- vdsl.repo:find(gen_id) → record
+-- vdsl.repo:query({ model, workspace, ... }) → records
+M.repo = setmetatable({}, {
+  __index = function(t, k)
+    -- First access: instantiate real repo and replace proxy
+    local Repository = require("vdsl.repository")
+    local repo = Repository.new()
+    -- Install method forwarders on proxy table
+    for mk, mv in pairs(Repository) do
+      if type(mv) == "function" and mk ~= "new" then
+        rawset(t, mk, function(_, ...) return mv(repo, ...) end)
+      end
+    end
+    rawset(t, "_inner", repo)
+    return rawget(t, k)
+  end,
+})
+
+--- Lazy-loaded training module.
+-- vdsl.training.archetype() → define training concept
+-- vdsl.training.grid.auto() → dataset diversity
+-- vdsl.training.method("kohya") → training config generation
+-- vdsl.training.verify.plan() → post-training verification
+M.training = setmetatable({}, {
+  __index = function(t, k)
+    local mod = require("vdsl.training")
+    for mk, mv in pairs(mod) do rawset(t, mk, mv) end
+    return t[k]
+  end,
+})
 
 -- ============================================================
 -- Execution layer
@@ -120,25 +246,34 @@ function M.render(opts)
   return compiler.compile(opts)
 end
 
+--- Analyze prompt token usage without building a graph.
+-- Returns diagnostics: estimated token counts, chunk allocation,
+-- budget breakdown by category, warnings, and suggestions.
+-- @param opts table render options (same as vdsl.render)
+-- @return table diagnostics
+function M.check(opts)
+  return compiler.check(opts)
+end
+
 function M.connect(url, opts)
-  local Registry = require("vdsl.registry")
+  local Registry = require("vdsl.runtime.registry")
   return Registry.connect(url, opts)
 end
 
 function M.from_object_info(info, url, headers)
-  local Registry = require("vdsl.registry")
+  local Registry = require("vdsl.runtime.registry")
   return Registry.from_object_info(info, url, headers)
 end
 
 function M.set_matcher(fn)
-  local matcher = require("vdsl.matcher")
+  local matcher = require("vdsl.util.matcher")
   matcher.set_matcher(fn)
 end
 
 --- Set a custom HTTP transport backend.
 -- @param backend table { get, post_json, download } or nil to reset
 function M.set_transport(backend)
-  local transport = require("vdsl.transport")
+  local transport = require("vdsl.runtime.transport")
   transport.set_backend(backend)
 end
 
@@ -155,7 +290,7 @@ function M.run(opts, registry)
     if not url then
       error("vdsl.run: url is required (or pass a Registry as 2nd arg)", 2)
     end
-    local Registry = require("vdsl.registry")
+    local Registry = require("vdsl.runtime.registry")
     reg = Registry.connect(url, { token = opts.token })
   end
 
@@ -207,7 +342,7 @@ function M.import_png(filepath)
 
   -- Prefer vdsl recipe (full semantic round-trip)
   if chunks["vdsl"] then
-    local ok, opts = pcall(recipe_mod.deserialize, chunks["vdsl"])
+    local ok, opts = pcall(serializer.deserialize, chunks["vdsl"])
     if ok then
       return opts, nil, true
     end
@@ -237,7 +372,7 @@ end
 -- @return boolean success
 -- @return string|nil error message
 function M.embed(filepath, render_opts)
-  local recipe_json = recipe_mod.serialize(render_opts)
+  local recipe_json = serializer.serialize(render_opts)
   local result = compiler.compile(render_opts)
   local prompt_json = json_mod.encode(result.prompt)
   return png_mod.inject_text(filepath, { vdsl = recipe_json, prompt = prompt_json })
@@ -250,7 +385,7 @@ end
 -- @return boolean success
 -- @return string|nil error message
 function M.embed_to(src_path, dst_path, render_opts)
-  local recipe_json = recipe_mod.serialize(render_opts)
+  local recipe_json = serializer.serialize(render_opts)
   local result = compiler.compile(render_opts)
   local prompt_json = json_mod.encode(result.prompt)
   return png_mod.inject_text_to(src_path, dst_path, { vdsl = recipe_json, prompt = prompt_json })
@@ -262,8 +397,34 @@ end
 -- @return table render result with .recipe (JSON string)
 function M.render_with_recipe(opts)
   local result = compiler.compile(opts)
-  result.recipe = recipe_mod.serialize(opts)
+  result.recipe = serializer.serialize(opts)
   return result
+end
+
+--- Emit compiled workflow via runtime/emit backend.
+-- Delegates to runtime/emit.lua which supports DI via set_backend().
+-- Default backend writes to VDSL_OUT_DIR; no-op when unset (standalone mode).
+-- @param name string  output filename stem (e.g. "01_gothic_lolita")
+-- @param result table  return value from vdsl.render()
+-- @param render_opts table|nil  original render opts (for recipe serialization)
+-- @return boolean true if written, false if skipped
+function M.emit(name, result, render_opts)
+  local ok = emit_mod.write(name, result.json)
+  if not ok then return false end
+
+  -- Recipe sidecar: serialize render_opts for DB persistence
+  local recipe_src = render_opts or (result and result.recipe and render_opts)
+  if not recipe_src and result and result.recipe then
+    -- result.recipe is already a JSON string (from render_with_recipe)
+    emit_mod.write_recipe(name, result.recipe)
+  elseif recipe_src then
+    local ser_ok, recipe_json = pcall(serializer.serialize, recipe_src)
+    if ser_ok then
+      emit_mod.write_recipe(name, recipe_json)
+    end
+  end
+
+  return true
 end
 
 return M

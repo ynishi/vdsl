@@ -12,3 +12,17 @@
 # Luarocks
 *.rock
 lua_modules/
+
+workspace
+.env
+.env.runtime
+
+# Runtime / Build
+output/
+target/
+.vdsl/
+.mcp.json
+scripts/.inline_history/
+
+# User-specific
+workspaces/

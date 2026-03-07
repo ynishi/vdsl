@@ -2,10 +2,13 @@
 -- Run: lua -e "package.path='lua/?.lua;lua/?/init.lua;tests/?.lua;'..package.path" tests/test_decode.lua
 
 local vdsl   = require("vdsl")
-local decode = require("vdsl.decode")
-local png    = require("vdsl.png")
-local json   = require("vdsl.json")
+local decode = require("vdsl.compilers.comfyui.decoder")
+local png    = require("vdsl.util.png")
+local json   = require("vdsl.util.json")
 local T      = require("harness")
+
+-- Isolate from user config (workspaces/config.lua)
+vdsl.config._override({})
 
 -- ============================================================
 -- Helper: render then decode (round-trip)

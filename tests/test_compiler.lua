@@ -2,8 +2,11 @@
 -- Run: lua -e "package.path='lua/?.lua;lua/?/init.lua;tests/?.lua;'..package.path" tests/test_compiler.lua
 
 local vdsl = require("vdsl")
-local json = require("vdsl.json")
+local json = require("vdsl.util.json")
 local T    = require("harness")
+
+-- Isolate from user config (workspaces/config.lua)
+vdsl.config._override({})
 
 -- ============================================================
 -- JSON encoder tests
@@ -164,7 +167,7 @@ T.ok("full: VAELoader",        types2["VAELoader"] == 1)
 T.ok("full: CLIPSetLastLayer",  types2["CLIPSetLastLayer"] == 1)
 T.ok("full: LoraLoader",       types2["LoraLoader"] == 1)
 T.ok("full: ControlNetLoader", types2["ControlNetLoader"] == 1)
-T.ok("full: ControlNetApply",  types2["ControlNetApply"] == 1)
+T.ok("full: ControlNetApplyAdvanced", types2["ControlNetApplyAdvanced"] == 1)
 T.ok("full: CLIPEncode x2",    types2["CLIPTextEncode"] == 2)
 T.ok("full: LoadImage",        types2["LoadImage"] == 1)
 
@@ -181,14 +184,6 @@ end)
 
 T.err("render: empty cast", function()
   vdsl.render { world = vdsl.world { model = "m" }, cast = {} }
-end)
-
-T.err("render: bad theme", function()
-  vdsl.render {
-    world = vdsl.world { model = "m" },
-    cast  = { vdsl.cast { subject = "x" } },
-    theme = { name = "fake" },  -- plain table, not a Theme entity
-  }
 end)
 
 -- ============================================================
@@ -405,10 +400,14 @@ T.eq("color: ColorCorrect", color_types["ColorCorrect"], 1)
 
 for _, node in pairs(r_color.prompt) do
   if node.class_type == "ColorCorrect" then
-    T.eq("color: brightness", node.inputs.brightness, 1.1)
-    T.eq("color: contrast",   node.inputs.contrast, 1.2)
-    T.eq("color: saturation", node.inputs.saturation, 0.9)
+    -- VDSL multiplier → EllangoK offset: (mul - 1.0) * 100
+    -- 1.1 → 10, 1.2 → 20, 0.9 → -10, gamma is direct
+    T.eq("color: brightness", node.inputs.brightness, 10.0)
+    T.eq("color: contrast",   node.inputs.contrast, 20.0)
+    T.eq("color: saturation", node.inputs.saturation, -10.0)
     T.eq("color: gamma",      node.inputs.gamma, 0.95)
+    T.eq("color: temperature", node.inputs.temperature, 0)
+    T.eq("color: hue",         node.inputs.hue, 0)
   end
 end
 
@@ -727,75 +726,9 @@ T.eq("plain: no Upscale",     plain_types["LatentUpscaleBy"], nil)
 T.eq("plain: no Sharpen",     plain_types["ImageSharpen"], nil)
 
 -- ============================================================
--- Theme: creation and metadata
--- ============================================================
-local my_theme = vdsl.theme {
-  name     = "test_cinema",
-  category = "photography",
-  tags     = { "film", "lighting" },
-  traits   = {
-    golden = vdsl.trait("golden hour"):hint("color", { gamma = 0.9 }),
-    noir   = vdsl.trait("film noir"):hint("color", { contrast = 1.3 }),
-  },
-}
-T.ok("theme: is entity",     Entity.is_entity(my_theme))
-T.ok("theme: is theme",     Entity.is(my_theme, "theme"))
-T.eq("theme: type_of",      Entity.type_of(my_theme), "theme")
-T.ok("theme: not trait",    not Entity.is(my_theme, "trait"))
-T.eq("theme: name",         my_theme.name, "test_cinema")
-T.eq("theme: category",     my_theme.category, "photography")
-T.eq("theme: tags[1]",      my_theme.tags[1], "film")
-T.ok("theme: golden trait",  Entity.is(my_theme.traits.golden, "trait"))
-T.ok("theme: noir trait",    Entity.is(my_theme.traits.noir, "trait"))
-T.ok("theme: has_tag film",  my_theme:has_tag("film"))
-T.ok("theme: no_tag anime",  not my_theme:has_tag("anime"))
-
-local names = my_theme:trait_names()
-T.eq("theme: names[1]",     names[1], "golden")
-T.eq("theme: names[2]",     names[2], "noir")
-
-T.err("theme: no name", function()
-  vdsl.theme { traits = { x = vdsl.trait("x") } }
-end)
-T.err("theme: no traits", function()
-  vdsl.theme { name = "bad" }
-end)
-T.err("theme: bad trait value", function()
-  vdsl.theme { name = "bad", traits = { x = "not a trait" } }
-end)
-
--- Theme traits work with Subject
-local theme_subj = vdsl.subject("warrior"):with(my_theme.traits.golden)
-local ts_hints = theme_subj:hints()
-T.ok("theme+subj: has color hint", ts_hints ~= nil and ts_hints.color ~= nil)
-T.eq("theme+subj: gamma",         ts_hints.color.gamma, 0.9)
-
--- ============================================================
--- Built-in themes (lazy load)
--- ============================================================
-local cinema_theme = vdsl.themes.cinema
-T.ok("builtin: cinema loaded",      cinema_theme ~= nil)
-T.eq("builtin: cinema name",        cinema_theme.name, "cinema")
-T.ok("builtin: cinema golden_hour", Entity.is(cinema_theme.traits.golden_hour, "trait"))
-T.ok("builtin: cinema has film",    cinema_theme:has_tag("film"))
-
-local anime_theme = vdsl.themes.anime
-T.ok("builtin: anime loaded",       anime_theme ~= nil)
-T.eq("builtin: anime name",         anime_theme.name, "anime")
-T.ok("builtin: anime cel_shade",    Entity.is(anime_theme.traits.cel_shade, "trait"))
-
-local arch_theme = vdsl.themes.architecture
-T.ok("builtin: arch loaded",        arch_theme ~= nil)
-T.eq("builtin: arch name",          arch_theme.name, "architecture")
-T.ok("builtin: arch exterior",      Entity.is(arch_theme.traits.exterior, "trait"))
-
--- Non-existent theme returns nil
-T.eq("builtin: unknown nil", vdsl.themes.nonexistent, nil)
-
--- ============================================================
 -- Cast with Trait subject (Trait auto-coerced to Subject)
 -- ============================================================
-local mood_trait = vdsl.themes.cinema.traits.golden_hour
+local mood_trait = vdsl.trait("golden hour, warm light"):hint("color", { gamma = 0.9 })
 local cast_from_trait = vdsl.cast { subject = mood_trait }
 T.ok("cast+trait: is cast",    Entity.is(cast_from_trait, "cast"))
 T.ok("cast+trait: subject ok", Entity.is(cast_from_trait.subject, "subject"))
@@ -805,14 +738,14 @@ local cft_hints = cast_from_trait.subject:hints()
 T.ok("cast+trait: hints preserved", cft_hints ~= nil and cft_hints.color ~= nil)
 T.eq("cast+trait: gamma",          cft_hints.color.gamma, 0.9)
 
--- Mood/lighting as Cast in render (replaces Atmosphere)
+-- Mood/lighting as Cast in render
 local r_mood_cast = vdsl.render {
   world = vdsl.world { model = "model.safetensors" },
   cast  = {
     vdsl.cast { subject = "warrior woman", negative = "ugly" },
     vdsl.cast {
-      subject = vdsl.themes.cinema.traits.golden_hour,
-      lora = { vdsl.lora("ic-light.safetensors", 0.5) },
+      subject = mood_trait,
+      lora = { { name = "ic-light.safetensors", weight = 0.5 } },
     },
   },
   seed = 42,
@@ -845,38 +778,12 @@ end
 T.ok("mood cast: golden hour in graph", find_text(mood_cast_texts, "golden hour"))
 T.ok("mood cast: warrior in graph",     find_text(mood_cast_texts, "warrior"))
 
--- Verify color params from golden_hour hint
+-- Verify color params from hint
 for _, node in pairs(r_mood_cast.prompt) do
   if node.class_type == "ColorCorrect" then
     T.eq("mood cast: gamma", node.inputs.gamma, 0.9)
   end
 end
-
--- ============================================================
--- Theme negatives: creation and validation
--- ============================================================
-local neg_theme = vdsl.theme {
-  name   = "test_neg",
-  traits = { x = vdsl.trait("x style") },
-  negatives = {
-    default = vdsl.trait("ugly, blurry"),
-    quality = vdsl.trait("low quality"),
-  },
-}
-T.ok("theme neg: default is trait", Entity.is(neg_theme.negatives.default, "trait"))
-T.eq("theme neg: quality text",    neg_theme.negatives.quality.text, "low quality")
-
--- Theme with no negatives: defaults to empty table
-local no_neg_theme = vdsl.theme {
-  name   = "no_neg",
-  traits = { y = vdsl.trait("y style") },
-}
-T.ok("theme no neg: empty table", type(no_neg_theme.negatives) == "table")
-
--- Built-in themes have negatives
-local cinema_neg = vdsl.themes.cinema
-T.ok("cinema neg: has default", Entity.is(cinema_neg.negatives.default, "trait"))
-T.ok("cinema neg: has quality", Entity.is(cinema_neg.negatives.quality, "trait"))
 
 -- ============================================================
 -- Global negative via opts.negative (string)
@@ -921,52 +828,7 @@ end
 T.ok("global neg trait: text in graph", find_text(gnt_texts, "bad quality, ugly"))
 
 -- ============================================================
--- Global negative via theme (automatic)
--- ============================================================
-local r_theme_neg = vdsl.render {
-  world = vdsl.world { model = "model.safetensors" },
-  cast  = { vdsl.cast { subject = "portrait woman" } },
-  theme = vdsl.themes.cinema,
-  seed  = 42,
-}
-
-local tn_types = {}
-local tn_texts = {}
-for _, node in pairs(r_theme_neg.prompt) do
-  tn_types[node.class_type] = (tn_types[node.class_type] or 0) + 1
-  if node.class_type == "CLIPTextEncode" then
-    tn_texts[#tn_texts + 1] = node.inputs.text
-  end
-end
--- Theme negative adds: 1 CLIPTextEncode + 1 ConditioningCombine
-T.eq("theme neg: CLIPEncode x3", tn_types["CLIPTextEncode"], 3)
-T.eq("theme neg: CondCombine x1", tn_types["ConditioningCombine"], 1)
--- Cinema default negative text appears
-T.ok("theme neg: cinema neg in graph", find_text(tn_texts, "cartoon"))
-
--- ============================================================
--- opts.negative overrides theme negatives
--- ============================================================
-local r_neg_override = vdsl.render {
-  world    = vdsl.world { model = "model.safetensors" },
-  cast     = { vdsl.cast { subject = "cat" } },
-  theme    = vdsl.themes.cinema,
-  negative = "my custom negative",
-  seed     = 42,
-}
-
-local no_texts = {}
-for _, node in pairs(r_neg_override.prompt) do
-  if node.class_type == "CLIPTextEncode" then
-    no_texts[#no_texts + 1] = node.inputs.text
-  end
-end
--- Custom negative appears instead of theme default
-T.ok("neg override: custom in graph",    find_text(no_texts, "my custom negative"))
-T.ok("neg override: no cinema default",  not find_text(no_texts, "cartoon"))
-
--- ============================================================
--- No negative, no theme = no global negative (clean pipeline)
+-- No negative = no global negative (clean pipeline)
 -- ============================================================
 local r_no_neg = vdsl.render {
   world = vdsl.world { model = "model.safetensors" },
@@ -981,115 +843,7 @@ end
 T.eq("no neg: no CondCombine", nn_types["ConditioningCombine"], nil)
 
 -- ============================================================
--- Full pipeline: Theme + mood-as-Cast + hints
--- ============================================================
-local full_theme = vdsl.themes.cinema
-local full_subj = vdsl.subject("portrait woman")
-  :with(full_theme.traits.bokeh)
-  :with(vdsl.trait("detailed face"):hint("face", { fidelity = 0.6 }))
-
-local r_full = vdsl.render {
-  world = vdsl.world { model = "model.safetensors" },
-  theme = full_theme,
-  cast  = {
-    vdsl.cast { subject = full_subj },
-    vdsl.cast {
-      subject = full_theme.traits.golden_hour,
-      lora = { vdsl.lora("ic-light.safetensors", 0.5) },
-    },
-  },
-  seed = 42,
-}
-
-local full_types = {}
-for _, node in pairs(r_full.prompt) do
-  full_types[node.class_type] = (full_types[node.class_type] or 0) + 1
-end
--- LoRA from mood cast
-T.eq("full: LoraLoader x1",     full_types["LoraLoader"], 1)
--- 2 casts + theme neg → ConditioningCombine present
-T.ok("full: CondCombine",       full_types["ConditioningCombine"] ~= nil)
--- Face hint from portrait cast
-T.eq("full: FaceRestore",       full_types["FaceRestoreWithModel"], 1)
--- Color hint from golden_hour cast
-T.eq("full: ColorCorrect",      full_types["ColorCorrect"], 1)
-
--- Verify color params came from golden_hour theme trait
-for _, node in pairs(r_full.prompt) do
-  if node.class_type == "ColorCorrect" then
-    T.eq("full: gamma from theme", node.inputs.gamma, 0.9)
-  end
-end
-
--- ============================================================
--- Theme defaults: render params from theme
--- ============================================================
-local r_theme_defaults = vdsl.render {
-  world = vdsl.world { model = "model.safetensors" },
-  theme = vdsl.themes.cinema,
-  cast  = { vdsl.cast { subject = "test" } },
-  seed  = 42,
-}
-
--- Cinema defaults: steps=30, cfg=7.5, sampler=euler, size=1024x1024
-for _, node in pairs(r_theme_defaults.prompt) do
-  if node.class_type == "KSampler" then
-    T.eq("theme defaults: steps",     node.inputs.steps, 30)
-    T.eq("theme defaults: cfg",       node.inputs.cfg, 7.5)
-    T.eq("theme defaults: sampler",   node.inputs.sampler_name, "euler")
-    T.eq("theme defaults: scheduler", node.inputs.scheduler, "normal")
-  end
-  if node.class_type == "EmptyLatentImage" then
-    T.eq("theme defaults: width",  node.inputs.width, 1024)
-    T.eq("theme defaults: height", node.inputs.height, 1024)
-  end
-end
-
--- Anime theme: size=832x1216, steps=28
-local r_anime_defaults = vdsl.render {
-  world = vdsl.world { model = "model.safetensors" },
-  theme = vdsl.themes.anime,
-  cast  = { vdsl.cast { subject = "test" } },
-  seed  = 42,
-}
-
-for _, node in pairs(r_anime_defaults.prompt) do
-  if node.class_type == "KSampler" then
-    T.eq("anime defaults: steps", node.inputs.steps, 28)
-    T.eq("anime defaults: cfg",   node.inputs.cfg, 7.0)
-  end
-  if node.class_type == "EmptyLatentImage" then
-    T.eq("anime defaults: width",  node.inputs.width, 832)
-    T.eq("anime defaults: height", node.inputs.height, 1216)
-  end
-end
-
--- ============================================================
--- Theme defaults: opts override theme
--- ============================================================
-local r_override_defaults = vdsl.render {
-  world = vdsl.world { model = "model.safetensors" },
-  theme = vdsl.themes.cinema,
-  cast  = { vdsl.cast { subject = "test" } },
-  seed  = 42,
-  steps = 15,
-  cfg   = 4.0,
-  size  = { 768, 768 },
-}
-
-for _, node in pairs(r_override_defaults.prompt) do
-  if node.class_type == "KSampler" then
-    T.eq("defaults override: steps", node.inputs.steps, 15)
-    T.eq("defaults override: cfg",   node.inputs.cfg, 4.0)
-  end
-  if node.class_type == "EmptyLatentImage" then
-    T.eq("defaults override: width",  node.inputs.width, 768)
-    T.eq("defaults override: height", node.inputs.height, 768)
-  end
-end
-
--- ============================================================
--- No theme: hard-coded fallback (steps=20, cfg=7.0, 512x512)
+-- Default fallback (steps=20, cfg=7.0, 512x512)
 -- ============================================================
 local r_no_theme = vdsl.render {
   world = vdsl.world { model = "model.safetensors" },
@@ -1099,14 +853,325 @@ local r_no_theme = vdsl.render {
 
 for _, node in pairs(r_no_theme.prompt) do
   if node.class_type == "KSampler" then
-    T.eq("no theme: steps", node.inputs.steps, 20)
-    T.eq("no theme: cfg",   node.inputs.cfg, 7.0)
+    T.eq("fallback: steps", node.inputs.steps, 20)
+    T.eq("fallback: cfg",   node.inputs.cfg, 7.0)
   end
   if node.class_type == "EmptyLatentImage" then
-    T.eq("no theme: width",  node.inputs.width, 512)
-    T.eq("no theme: height", node.inputs.height, 512)
+    T.eq("fallback: width",  node.inputs.width, 512)
+    T.eq("fallback: height", node.inputs.height, 512)
   end
 end
+
+-- ============================================================
+-- Post: FaceDetailer with string prompt (baseline)
+-- ============================================================
+local r_fd_str = vdsl.render {
+  world = vdsl.world { model = "model.safetensors" },
+  cast  = { vdsl.cast { subject = "1girl, red eyes", negative = "ugly" } },
+  post  = vdsl.post("facedetail", {
+    detector = "face",
+    prompt   = "red eyes, detailed iris",
+    negative = "blurry eyes",
+  }),
+  seed = 42,
+}
+
+local fd_str_types = {}
+local fd_str_texts = {}
+for _, node in pairs(r_fd_str.prompt) do
+  fd_str_types[node.class_type] = (fd_str_types[node.class_type] or 0) + 1
+  if node.class_type == "CLIPTextEncode" then
+    fd_str_texts[#fd_str_texts + 1] = node.inputs.text
+  end
+end
+T.eq("fd str: FaceDetailer x1",           fd_str_types["FaceDetailer"], 1)
+T.eq("fd str: UltralyticsDetector x1",    fd_str_types["UltralyticsDetectorProvider"], 1)
+-- main pos + main neg + fd prompt + fd negative = 4
+T.eq("fd str: CLIPTextEncode x4",         fd_str_types["CLIPTextEncode"], 4)
+T.ok("fd str: prompt text in graph",      find_text(fd_str_texts, "red eyes, detailed iris"))
+T.ok("fd str: negative text in graph",    find_text(fd_str_texts, "blurry eyes"))
+
+-- ============================================================
+-- Post: FaceDetailer with Trait prompt
+-- ============================================================
+local fd_trait_prompt = vdsl.trait("red eyes, slit pupils")
+  + vdsl.trait("demon horns, pointed ears")
+local fd_trait_neg = vdsl.trait("round pupil, no horns")
+
+local r_fd_trait = vdsl.render {
+  world = vdsl.world { model = "model.safetensors" },
+  cast  = { vdsl.cast { subject = "1girl", negative = "ugly" } },
+  post  = vdsl.post("facedetail", {
+    detector = "face",
+    prompt   = fd_trait_prompt,
+    negative = fd_trait_neg,
+  }),
+  seed = 42,
+}
+
+local fd_trait_types = {}
+local fd_trait_texts = {}
+for _, node in pairs(r_fd_trait.prompt) do
+  fd_trait_types[node.class_type] = (fd_trait_types[node.class_type] or 0) + 1
+  if node.class_type == "CLIPTextEncode" then
+    fd_trait_texts[#fd_trait_texts + 1] = node.inputs.text
+  end
+end
+T.eq("fd trait: FaceDetailer x1",         fd_trait_types["FaceDetailer"], 1)
+T.eq("fd trait: CLIPTextEncode x4",       fd_trait_types["CLIPTextEncode"], 4)
+T.ok("fd trait: prompt resolved",         find_text(fd_trait_texts, "red eyes, slit pupils"))
+T.ok("fd trait: prompt has horns",        find_text(fd_trait_texts, "demon horns"))
+T.ok("fd trait: negative resolved",       find_text(fd_trait_texts, "round pupil"))
+
+-- ============================================================
+-- Post: FaceDetailer with Subject prompt (partial Subject as subquery)
+-- ============================================================
+local fd_sub = vdsl.subject("1girl")
+  :with(vdsl.trait("red eyes, glowing eyes"))
+  :with(vdsl.trait("pale skin, black hair"))
+
+local r_fd_sub = vdsl.render {
+  world = vdsl.world { model = "model.safetensors" },
+  cast  = { vdsl.cast { subject = "1girl, warrior", negative = "ugly" } },
+  post  = vdsl.post("facedetail", {
+    detector = "face",
+    prompt   = fd_sub,
+    negative = vdsl.trait("normal eyes"),
+  }),
+  seed = 42,
+}
+
+local fd_sub_texts = {}
+for _, node in pairs(r_fd_sub.prompt) do
+  if node.class_type == "CLIPTextEncode" then
+    fd_sub_texts[#fd_sub_texts + 1] = node.inputs.text
+  end
+end
+T.ok("fd subject: prompt has base",       find_text(fd_sub_texts, "1girl"))
+T.ok("fd subject: prompt has eyes",       find_text(fd_sub_texts, "red eyes"))
+T.ok("fd subject: prompt has skin",       find_text(fd_sub_texts, "pale skin"))
+T.ok("fd subject: negative resolved",     find_text(fd_sub_texts, "normal eyes"))
+
+-- ============================================================
+-- Post: FaceDetailer with Trait + Trait composition
+-- ============================================================
+local char_face = vdsl.trait("red eyes, slit pupils, demon horns")
+local scene_wet = vdsl.trait("wet eyelashes, rain on face")
+
+local r_fd_compose = vdsl.render {
+  world = vdsl.world { model = "model.safetensors" },
+  cast  = { vdsl.cast { subject = "1girl", negative = "ugly" } },
+  post  = vdsl.post("facedetail", {
+    detector = "face",
+    prompt   = char_face + scene_wet,
+  }),
+  seed = 42,
+}
+
+local fd_compose_texts = {}
+for _, node in pairs(r_fd_compose.prompt) do
+  if node.class_type == "CLIPTextEncode" then
+    fd_compose_texts[#fd_compose_texts + 1] = node.inputs.text
+  end
+end
+T.ok("fd compose: has char traits",       find_text(fd_compose_texts, "demon horns"))
+T.ok("fd compose: has scene traits",      find_text(fd_compose_texts, "wet eyelashes"))
+
+-- ============================================================
+-- Post: FaceDetailer with no prompt override (uses main conditioning)
+-- ============================================================
+local r_fd_noprompt = vdsl.render {
+  world = vdsl.world { model = "model.safetensors" },
+  cast  = { vdsl.cast { subject = "1girl, warrior", negative = "ugly" } },
+  post  = vdsl.post("facedetail", { detector = "face", denoise = 0.4 }),
+  seed  = 42,
+}
+
+local fd_noprompt_types = {}
+for _, node in pairs(r_fd_noprompt.prompt) do
+  fd_noprompt_types[node.class_type] = (fd_noprompt_types[node.class_type] or 0) + 1
+end
+T.eq("fd noprompt: FaceDetailer x1",      fd_noprompt_types["FaceDetailer"], 1)
+-- main pos + main neg only (no extra CLIPTextEncode for fd prompt)
+T.eq("fd noprompt: CLIPTextEncode x2",    fd_noprompt_types["CLIPTextEncode"], 2)
+
+-- ============================================================
+-- Post: FaceDetailer person detector (segm model)
+-- ============================================================
+local r_fd_person = vdsl.render {
+  world = vdsl.world { model = "model.safetensors" },
+  cast  = { vdsl.cast { subject = "1girl", negative = "ugly" } },
+  post  = vdsl.post("facedetail", {
+    detector = "person",
+    prompt   = vdsl.trait("tattoo on neck, pale skin"),
+    negative = vdsl.trait("clean neck"),
+  }),
+  seed = 42,
+}
+
+local fd_person_texts = {}
+local fd_person_detector = nil
+for _, node in pairs(r_fd_person.prompt) do
+  if node.class_type == "CLIPTextEncode" then
+    fd_person_texts[#fd_person_texts + 1] = node.inputs.text
+  end
+  if node.class_type == "UltralyticsDetectorProvider" then
+    fd_person_detector = node.inputs.model_name
+  end
+end
+T.ok("fd person: prompt resolved",        find_text(fd_person_texts, "tattoo on neck"))
+T.ok("fd person: negative resolved",      find_text(fd_person_texts, "clean neck"))
+T.eq("fd person: segm model",             fd_person_detector, "segm/person_yolov8m-seg.pt")
+
+-- ============================================================
+-- Post: FaceDetailer chained (person → face, like mazoku_snap)
+-- ============================================================
+local body_prompt = vdsl.trait("tattoo on neck, intricate markings, pale skin")
+local face_prompt = vdsl.trait("red eyes, slit pupils") + vdsl.trait("demon horns, black horns")
+
+local r_fd_chain = vdsl.render {
+  world = vdsl.world { model = "model.safetensors" },
+  cast  = { vdsl.cast { subject = "1girl, demon", negative = "ugly" } },
+  post  = vdsl.post("facedetail", {
+    detector = "person",
+    prompt   = body_prompt,
+    negative = vdsl.trait("clean skin"),
+  })
+  + vdsl.post("facedetail", {
+    detector = "face",
+    prompt   = face_prompt,
+    negative = vdsl.trait("round pupil"),
+  }),
+  seed = 42,
+}
+
+local fd_chain_types = {}
+local fd_chain_texts = {}
+for _, node in pairs(r_fd_chain.prompt) do
+  fd_chain_types[node.class_type] = (fd_chain_types[node.class_type] or 0) + 1
+  if node.class_type == "CLIPTextEncode" then
+    fd_chain_texts[#fd_chain_texts + 1] = node.inputs.text
+  end
+end
+T.eq("fd chain: FaceDetailer x2",         fd_chain_types["FaceDetailer"], 2)
+T.eq("fd chain: UltralyticsDetector x2",  fd_chain_types["UltralyticsDetectorProvider"], 2)
+-- main pos + main neg + person prompt + person neg + face prompt + face neg = 6
+T.eq("fd chain: CLIPTextEncode x6",       fd_chain_types["CLIPTextEncode"], 6)
+T.ok("fd chain: body prompt",             find_text(fd_chain_texts, "tattoo on neck"))
+T.ok("fd chain: face prompt",             find_text(fd_chain_texts, "red eyes"))
+T.ok("fd chain: face negative",           find_text(fd_chain_texts, "round pupil"))
+
+-- ============================================================
+-- hint("lora") — World resolver integration
+-- ============================================================
+
+-- Dict-form world with named LoRA pool
+local r_hint_lora = vdsl.render {
+  world = vdsl.world {
+    model = "model.safetensors",
+    lora = {
+      style  = { name = "style_v1.safetensors", weight = 0.8 },
+      detail = { name = "add_detail.safetensors", weight = 0.6 },
+    },
+  },
+  cast = {
+    vdsl.cast {
+      subject = vdsl.subject("1girl"):with(
+        vdsl.trait("detailed eyes"):hint("lora", "detail")
+      ),
+    },
+  },
+  seed = 42,
+}
+
+local hint_lora_types = {}
+local hint_lora_names = {}
+for _, node in pairs(r_hint_lora.prompt) do
+  hint_lora_types[node.class_type] = (hint_lora_types[node.class_type] or 0) + 1
+  if node.class_type == "LoraLoader" then
+    hint_lora_names[#hint_lora_names + 1] = node.inputs.lora_name
+  end
+end
+-- World has 2 LoRAs in pool, but only "detail" is hinted + both world-level applied
+T.eq("hint lora: LoraLoader x2", hint_lora_types["LoraLoader"], 2)
+T.ok("hint lora: style loaded (world-level)", find_text(hint_lora_names, "style_v1.safetensors"))
+T.ok("hint lora: detail loaded (hint-resolved)", find_text(hint_lora_names, "add_detail.safetensors"))
+
+-- hint("lora") with full spec in hint (no World resolution needed)
+local r_hint_direct = vdsl.render {
+  world = vdsl.world { model = "model.safetensors" },
+  cast = {
+    vdsl.cast {
+      subject = vdsl.subject("1girl"):with(
+        vdsl.trait("torn clothes"):hint("lora", { name = "torn_v1.safetensors", weight = 0.7 })
+      ),
+    },
+  },
+  seed = 42,
+}
+
+local hint_direct_types = {}
+local hint_direct_lora = nil
+for _, node in pairs(r_hint_direct.prompt) do
+  hint_direct_types[node.class_type] = (hint_direct_types[node.class_type] or 0) + 1
+  if node.class_type == "LoraLoader" then
+    hint_direct_lora = node.inputs
+  end
+end
+T.eq("hint direct: LoraLoader x1", hint_direct_types["LoraLoader"], 1)
+T.eq("hint direct: lora_name",     hint_direct_lora.lora_name, "torn_v1.safetensors")
+T.eq("hint direct: strength",      hint_direct_lora.strength_model, 0.7)
+
+-- Dedup: hint("lora") same as world-level → no double load
+local r_hint_dedup = vdsl.render {
+  world = vdsl.world {
+    model = "model.safetensors",
+    lora = {
+      style = { name = "style_v1.safetensors", weight = 0.8 },
+    },
+  },
+  cast = {
+    vdsl.cast {
+      subject = vdsl.subject("1girl"):with(
+        vdsl.trait("anime style"):hint("lora", "style")
+      ),
+    },
+  },
+  seed = 42,
+}
+
+local dedup_lora_count = 0
+for _, node in pairs(r_hint_dedup.prompt) do
+  if node.class_type == "LoraLoader" then
+    dedup_lora_count = dedup_lora_count + 1
+  end
+end
+-- "style" already loaded at world-level → hint should NOT double-load
+T.eq("hint dedup: LoraLoader x1", dedup_lora_count, 1)
+
+-- Cast.lora full spec (escape hatch, backward compat)
+local r_cast_lora = vdsl.render {
+  world = vdsl.world { model = "model.safetensors" },
+  cast = {
+    vdsl.cast {
+      subject = "1girl",
+      lora = { { name = "explicit.safetensors", weight = 0.9 } },
+    },
+  },
+  seed = 42,
+}
+
+local cast_lora_types = {}
+local cast_lora_node = nil
+for _, node in pairs(r_cast_lora.prompt) do
+  cast_lora_types[node.class_type] = (cast_lora_types[node.class_type] or 0) + 1
+  if node.class_type == "LoraLoader" then
+    cast_lora_node = node.inputs
+  end
+end
+T.eq("cast lora: LoraLoader x1",  cast_lora_types["LoraLoader"], 1)
+T.eq("cast lora: name",           cast_lora_node.lora_name, "explicit.safetensors")
+T.eq("cast lora: weight",         cast_lora_node.strength_model, 0.9)
 
 -- ============================================================
 -- JSON structure check

@@ -7,9 +7,9 @@
 
 local T    = require("harness")
 local vdsl = require("vdsl")
-local json = require("vdsl.json")
-local transport = require("vdsl.transport")
-local png_mod   = require("vdsl.png")
+local json = require("vdsl.util.json")
+local transport = require("vdsl.runtime.transport")
+local png_mod   = require("vdsl.util.png")
 
 print("=== Runner Pipeline Tests ===")
 
@@ -53,7 +53,7 @@ end)
 
 print("\n--- Registry method existence ---")
 
-local Registry = require("vdsl.registry")
+local Registry = require("vdsl.runtime.registry")
 
 -- Build a registry from fake object_info (no server needed)
 local fake_info = {

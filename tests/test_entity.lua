@@ -133,19 +133,14 @@ T.err("subject: quality bad",    function() vdsl.subject("x"):quality("nonexiste
 T.err("subject: style bad",      function() vdsl.subject("x"):style("nonexistent") end)
 
 -- ============================================================
--- vdsl.lora convenience
+-- LoRA as table literal (vdsl.lora() removed — LoRA is World resource)
 -- ============================================================
-local l1 = vdsl.lora("detail.safetensors", 0.7)
+local l1 = { name = "detail.safetensors", weight = 0.7 }
 T.eq("lora: name",   l1.name,   "detail.safetensors")
 T.eq("lora: weight", l1.weight, 0.7)
 
-local l2 = vdsl.lora("lcm.safetensors", vdsl.weight.heavy)
-T.ok("lora: weight entity", vdsl.weight.is_weight(l2.weight))
-
-local l3 = vdsl.lora("default.safetensors")
+local l3 = { name = "default.safetensors", weight = 1.0 }
 T.eq("lora: default weight", l3.weight, 1.0)
-
-T.err("lora: empty name", function() vdsl.lora("") end)
 
 -- ============================================================
 -- Cast with Subject (V2: always subject-based)
@@ -156,7 +151,7 @@ local ugly_trait  = vdsl.trait("blurry, ugly, deformed")
 local c1 = vdsl.cast {
   subject  = cat_subject,
   negative = ugly_trait,
-  lora     = { vdsl.lora("detail.safetensors", vdsl.weight.heavy) },
+  lora     = { { name = "detail.safetensors", weight = vdsl.weight.heavy } },
 }
 T.ok("cast: is cast",          Entity.is(c1, "cast"))
 T.ok("cast: has subject",      Entity.is(c1.subject, "subject"))
@@ -187,7 +182,7 @@ local hero_subject = vdsl.subject("warrior woman")
 local hero = vdsl.cast {
   subject  = hero_subject,
   negative = vdsl.trait("blurry, ugly"),
-  lora     = { vdsl.lora("detail.safetensors", vdsl.weight.medium) },
+  lora     = { { name = "detail.safetensors", weight = vdsl.weight.medium } },
 }
 
 local result = vdsl.render {
