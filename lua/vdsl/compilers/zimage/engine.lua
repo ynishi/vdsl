@@ -794,38 +794,46 @@ function M.compile(opts)
   end
 
   if turbo then
-    -- Turbo: use ZSamplerTurbo (ComfyUI-ZImagePowerNodes)
-    -- This node encapsulates the proprietary 3-stage sigma schedule,
-    -- noise bias estimation, and euler sampling internally.
-    local steps = opt(opts, "steps", preset.steps)
+    -- Turbo: use ZSamplerTurbo2 (ComfyUI-ZImagePowerNodes gen2)
+    -- This node encapsulates the proprietary multi-stage sigma schedule,
+    -- intensity correction, and euler sampling internally.
+    local steps   = opt(opts, "steps", preset.steps)
     local denoise = opt(opts, "denoise", 1.0)
     local sampled
-    if denoise < 0.98 then
-      -- ZSamplerTurbo (standard) has denoise min=0.98 (t2i only).
-      -- For I2I (denoise < 0.98), use ZSamplerTurboAdvanced which
-      -- supports full denoise range 0.0-1.0.
-      sampled = g:add("ZSamplerTurboAdvanced //ZImagePowerNodes", {
-        model                    = model_ref,
-        positive                 = positive_ref,
-        latent_input             = latent_ref,
-        seed                     = seed,
-        steps                    = steps,
-        denoise                  = denoise,
-        divider                   = "",
-        initial_noise_calibration = 0.0,
-        noise_bias_estimation    = "experimental",
-        noise_bias_sample_size   = "image_size",
-        noise_bias_scale         = 0.12,
-        noise_overdose           = 0.33,
+    if denoise < 1.0 and stage_latent_ref then
+      -- For I2I (denoise < 1.0), use ZSamplerTurbo2Advanced which
+      -- supports start_at_step/end_at_step for precise control.
+      sampled = g:add("ZSamplerTurbo2Advanced //ZImagePowerNodes", {
+        latent_input        = latent_ref,
+        model               = model_ref,
+        positive            = positive_ref,
+        add_noise           = true,
+        seed                = seed,
+        steps               = steps,
+        start_at_step       = 0,
+        end_at_step         = 100,
+        force_final_denoising = true,
+        divider             = "",
+        initial_sample_size = opt(opts, "initial_sample_size", "full_size"),
+        divider2            = "",
+        intensity           = opt(opts, "intensity", 0.0),
+        intensity_bias      = opt(opts, "intensity_bias", 0.0),
+        turbo_creativity    = opt(opts, "turbo_creativity", "off"),
       })
     else
-      sampled = g:add("ZSamplerTurbo //ZImagePowerNodes", {
-        model        = model_ref,
-        positive     = positive_ref,
-        latent_input = latent_ref,
-        seed         = seed,
-        steps        = steps,
-        denoise      = denoise,
+      sampled = g:add("ZSamplerTurbo2 //ZImagePowerNodes", {
+        latent_input        = latent_ref,
+        model               = model_ref,
+        positive            = positive_ref,
+        seed                = seed,
+        steps               = steps,
+        denoise             = denoise,
+        divider             = "",
+        initial_sample_size = opt(opts, "initial_sample_size", "full_size"),
+        divider2            = "",
+        intensity           = opt(opts, "intensity", 0.0),
+        intensity_bias      = opt(opts, "intensity_bias", 0.0),
+        turbo_creativity    = opt(opts, "turbo_creativity", "off"),
       })
     end
     latent_ref = sampled(0)
