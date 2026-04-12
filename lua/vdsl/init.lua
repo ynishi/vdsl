@@ -225,55 +225,32 @@ M.repo = setmetatable({}, {
   end,
 })
 
---- Lazy-loaded Sync engine (3-location file sync).
--- vdsl.sync(opts) → Sync instance (shares DB with repo)
--- vdsl.sync:register(path, type, opts) → sync_state row
--- vdsl.sync:push_file(path, dest, dest_path) → ok, err
--- vdsl.sync:pull_file(src, src_path, dest_path) → ok, err
--- vdsl.sync:pending(loc) → files needing sync
--- vdsl.sync:summary() → counts by state/location
+--- Runtime Store (infra layer, like FS/Transport/DB/PNG).
+-- vdsl.store.status() → { total_entries, total_errors, locations }
+-- vdsl.store.sync() → task_id                                    (non-blocking full sync)
+-- vdsl.store.sync_route(src, dest) → task_id                     (non-blocking single route)
+-- vdsl.store.poll(task_id) → { status, result? } | nil           (poll background task)
+-- vdsl.store.get(path) → entry | nil
+-- vdsl.store.pending(dest) → entries
 --
--- Architecture:
---   Domain:  vdsl.sync (business logic, state machine)
---   Runtime: vdsl.runtime.sync (file transfer + hash backend)
+-- All sync operations are non-blocking: spawn background task, return task_id.
+-- Use store.poll(task_id) to check completion.
 --
--- opts: { pod_id, ssh_key, bucket }
--- Requires repo to be initialized first (shared DB).
-do
-  local _sync_instance = nil
+-- Default: MOCK (warns to stderr). Full impl via Rust bridge (MCP/mlua).
+-- vdsl.set_store_backend(table) to inject custom backend.
+M.store = setmetatable({}, {
+  __index = function(t, k)
+    local mod = require("vdsl.runtime.store")
+    for mk, mv in pairs(mod) do rawset(t, mk, mv) end
+    return t[k]
+  end,
+})
 
-  --- Create or return the Sync engine.
-  -- @param opts table|nil  { pod_id, ssh_key, bucket }
-  -- @return Sync
-  function M.sync(opts)
-    if _sync_instance and not opts then
-      return _sync_instance
-    end
-    local SyncEngine = require("vdsl.sync")
-    local SyncBackend = require("vdsl.runtime.sync")
-    -- Share DB with repo (lazy-init repo first)
-    local repo_inner = rawget(M.repo, "_inner")
-    if not repo_inner then
-      -- Trigger repo initialization
-      local _ = M.repo.ensure_workspace
-      repo_inner = rawget(M.repo, "_inner")
-    end
-    local db = repo_inner and repo_inner.db
-    if not db then
-      local DB = require("vdsl.runtime.db")
-      db = DB.open()
-    end
-    _sync_instance = SyncEngine.new(db, SyncBackend, opts)
-    return _sync_instance
-  end
-
-  --- Set a custom sync backend (e.g. Rust/mlua).
-  -- Replaces the runtime/sync backend (push/pull/list/exists/hash).
-  -- @param backend table or nil to reset
-  function M.set_sync_backend(backend)
-    local SyncBackend = require("vdsl.runtime.sync")
-    SyncBackend.set_backend(backend)
-  end
+--- Set a custom store backend (e.g. Rust/mlua).
+-- @param backend table or nil to reset
+function M.set_store_backend(backend)
+  local StoreBackend = require("vdsl.runtime.store")
+  StoreBackend.set_backend(backend)
 end
 
 --- Lazy-loaded training module.
