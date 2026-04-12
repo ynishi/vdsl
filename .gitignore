@@ -25,4 +25,5 @@ target/
 scripts/.inline_history/
 
 # User-specific
-workspaces/
+projects/
+assets/
