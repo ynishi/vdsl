@@ -19,32 +19,41 @@ local Catalog = require("vdsl.catalog")
 
 return Catalog.new {
   -- === Surface finish ===
-  -- Experimental: anime finetunes may interpret as armor; photorealistic styles work better.
-  metallic = Trait.new("shiny clothes, metallic", 1.1),
+  metallic = Trait.new("shiny clothes, metallic", 1.1)
+    :desc("metallic shiny surface"),
 
-  glossy = Trait.new("glossy, shiny surface"),
+  glossy = Trait.new("glossy, shiny surface")
+    :desc("glossy shiny surface finish"),
 
-  matte = Trait.new("matte, matte finish"),
+  matte = Trait.new("matte, matte finish")
+    :desc("matte non-reflective finish"),
 
-  translucent = Trait.new("translucent, semi-transparent"),
+  translucent = Trait.new("translucent, semi-transparent")
+    :desc("translucent semi-transparent material"),
 
   -- === Fabric / organic ===
-  leather = Trait.new("leather", 1.1),
+  leather = Trait.new("leather", 1.1)
+    :desc("leather material"),
 
-  silk = Trait.new("silk, silky"),
+  silk = Trait.new("silk, silky")
+    :desc("smooth silky fabric"),
 
-  lace = Trait.new("lace, lace trim"),
+  lace = Trait.new("lace, lace trim")
+    :desc("delicate lace with lace trim"),
 
-  denim = Trait.new("denim"),
+  denim = Trait.new("denim")
+    :desc("denim fabric"),
 
-  fur = Trait.new("fur trim"),
+  fur = Trait.new("fur trim")
+    :desc("soft fur trim"),
 
   -- === Hard materials ===
-  -- Experimental: character context works well; scene context may generate objects.
-  glass = Trait.new("glass, transparent glass"),
+  glass = Trait.new("glass, transparent glass")
+    :desc("transparent glass material"),
 
-  -- Experimental: character context works well; scene context may generate objects.
-  crystal = Trait.new("crystal, frozen, translucent, reflective surface", 1.1),
+  crystal = Trait.new("crystal, frozen, translucent, reflective surface", 1.1)
+    :desc("translucent reflective crystal material"),
 
-  wood = Trait.new("wood, wooden"),
+  wood = Trait.new("wood, wooden")
+    :desc("wooden material with wood grain"),
 }

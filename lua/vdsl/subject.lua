@@ -166,11 +166,12 @@ function Subject:trait_diagnostics()
 end
 
 --- Resolve all traits into a single prompt string (natural order).
+-- @param mode string|nil "natural" to prefer desc over tags, nil for default
 -- @return string
-function Subject:resolve()
+function Subject:resolve(mode)
   local parts = {}
   for _, t in ipairs(self._traits) do
-    local resolved = t:resolve()
+    local resolved = t:resolve(mode)
     if resolved ~= "" then
       parts[#parts + 1] = resolved
     end

@@ -28,28 +28,37 @@ local Catalog = require("vdsl.catalog")
 return Catalog.new {
   -- === Build ===
   muscular = Trait.new("muscular", 1.1)
-    + Trait.new("muscles, athletic build"),
+    + Trait.new("muscles, athletic build")
+    :desc("muscular athletic build with visible muscles"),
 
-  toned = Trait.new("toned, lean body"),
+  toned = Trait.new("toned, lean body")
+    :desc("toned lean body"),
 
-  slim = Trait.new("slim, slender"),
+  slim = Trait.new("slim, slender")
+    :desc("slim slender build"),
 
-  skinny = Trait.new("skinny, very thin"),
+  skinny = Trait.new("skinny, very thin")
+    :desc("very thin skinny build"),
 
-  petite = Trait.new("petite, small frame"),
+  petite = Trait.new("petite, small frame")
+    :desc("petite small frame"),
 
-  curvy = Trait.new("curvy, hourglass figure"),
+  curvy = Trait.new("curvy, hourglass figure")
+    :desc("curvy hourglass figure"),
 
-  chubby = Trait.new("chubby, plump"),
+  chubby = Trait.new("chubby, plump")
+    :desc("chubby plump build"),
 
   -- === Feature ===
-  abs = Trait.new("abs", 1.1),
+  abs = Trait.new("abs", 1.1)
+    :desc("visible abdominal muscles"),
 
   -- === Proportion (independent of build) ===
-  tall             = Trait.new("tall"),
-  long_legs        = Trait.new("long legs"),
+  tall             = Trait.new("tall"):desc("tall stature"),
+  long_legs        = Trait.new("long legs"):desc("long legs"),
 
   -- === Age ===
   elderly = Trait.new("elderly", 1.1)
-    + Trait.new("wrinkles, aged"),
+    + Trait.new("wrinkles, aged")
+    :desc("elderly with wrinkles and aged features"),
 }

@@ -27,75 +27,86 @@ local Catalog = require("vdsl.catalog")
 
 return Catalog.new {
   -- === Fantasy humanoid ===
-  -- elf: pointy_ears is auto-implied by elf tag.
   elf = Trait.new("elf", 1.1)
-    + Trait.new("pointy ears"),
+    + Trait.new("pointy ears")
+    :desc("an elf with pointed ears"),
 
-  -- dark_elf: elf → pointy_ears chain, no need to repeat.
   dark_elf = Trait.new("dark elf", 1.1)
-    + Trait.new("dark skin, white hair"),
+    + Trait.new("dark skin, white hair")
+    :desc("a dark elf with dark skin and white hair"),
 
   fairy = Trait.new("fairy", 1.1)
-    + Trait.new("fairy wings, minigirl"),
+    + Trait.new("fairy wings, minigirl")
+    :desc("a tiny fairy with delicate wings"),
 
   angel = Trait.new("angel", 1.1)
-    + Trait.new("angel wings, halo"),
+    + Trait.new("angel wings, halo")
+    :desc("an angel with feathered wings and a halo"),
 
-  -- demon: demon_horns implies horns. Wings and tail added.
   demon = Trait.new("demon", 1.1)
-    + Trait.new("demon horns, demon wings, demon tail"),
+    + Trait.new("demon horns, demon wings, demon tail")
+    :desc("a demon with horns, bat-like wings, and a tail"),
 
   vampire = Trait.new("vampire", 1.1)
-    + Trait.new("pale skin, red eyes, fangs"),
+    + Trait.new("pale skin, red eyes, fangs")
+    :desc("a vampire with pale skin, red eyes, and fangs"),
 
   oni = Trait.new("oni", 1.1)
-    + Trait.new("horns"),
+    + Trait.new("horns")
+    :desc("a Japanese oni with horns"),
 
   succubus = Trait.new("succubus", 1.1)
-    + Trait.new("demon wings, demon tail, demon horns"),
+    + Trait.new("demon wings, demon tail, demon horns")
+    :desc("a succubus with demon wings, tail, and horns"),
 
   -- === Animal-eared (kemonomimi) ===
-  -- Danbooru: cat_ears is the correct tag. "animal ears, cat" does NOT exist.
-  catgirl = Trait.new("cat ears, cat tail", 1.1),
+  catgirl = Trait.new("cat ears, cat tail", 1.1)
+    :desc("cat ears and a cat tail"),
 
-  foxgirl = Trait.new("fox ears, fox tail", 1.1),
+  foxgirl = Trait.new("fox ears, fox tail", 1.1)
+    :desc("fox ears and a fluffy fox tail"),
 
-  -- kitsune: distinct from foxgirl. Mythological fox spirit with multiple tails.
   kitsune = Trait.new("kitsune", 1.1)
-    + Trait.new("fox ears, fox tail, multiple tails"),
+    + Trait.new("fox ears, fox tail, multiple tails")
+    :desc("a kitsune fox spirit with fox ears and multiple tails"),
 
-  wolfgirl = Trait.new("wolf ears, wolf tail", 1.1),
+  wolfgirl = Trait.new("wolf ears, wolf tail", 1.1)
+    :desc("wolf ears and a wolf tail"),
 
-  -- bunnygirl: rabbit_ears is the canonical tag. bunny_ears is an alias (redundant).
-  bunnygirl = Trait.new("rabbit ears, rabbit tail", 1.1),
+  bunnygirl = Trait.new("rabbit ears, rabbit tail", 1.1)
+    :desc("rabbit ears and a fluffy rabbit tail"),
 
   -- === Monster / mythical ===
-  -- mermaid: underwater is a scene tag, not a species attribute.
   mermaid = Trait.new("mermaid", 1.1)
-    + Trait.new("fish tail, scales"),
+    + Trait.new("fish tail, scales")
+    :desc("a mermaid with a scaled fish tail"),
 
-  -- dragon: part-based tags to keep humanoid form.
   dragon = Trait.new("dragon horns, dragon tail, dragon wings", 1.1)
-    + Trait.new("scales"),
+    + Trait.new("scales")
+    :desc("dragon features with horns, scaled tail, and wings"),
 
   lamia = Trait.new("lamia", 1.1)
-    + Trait.new("snake tail, scales"),
+    + Trait.new("snake tail, scales")
+    :desc("a lamia with a long serpentine lower body"),
 
   harpy = Trait.new("harpy", 1.1)
-    + Trait.new("wings, talons, bird legs"),
+    + Trait.new("wings, talons, bird legs")
+    :desc("a harpy with feathered wings and bird-like talons"),
 
   ghost = Trait.new("ghost", 1.1)
-    + Trait.new("ghost tail, pale skin, glowing"),
+    + Trait.new("ghost tail, pale skin, glowing")
+    :desc("a ghostly figure with pale glowing translucent skin"),
 
-  -- Experimental: complex body composition often causes pose/perspective distortion.
   centaur = Trait.new("centaur", 1.1)
-    + Trait.new("horse body, hooves"),
+    + Trait.new("horse body, hooves")
+    :desc("a centaur with a human upper body and horse lower body"),
 
   -- === Mechanical ===
-  -- robot is too broad (pulls mecha/gundam). Split into android and cyborg.
   android = Trait.new("android", 1.1)
-    + Trait.new("robot joints, robot ears"),
+    + Trait.new("robot joints, robot ears")
+    :desc("an android with visible mechanical joints"),
 
   cyborg = Trait.new("cyborg", 1.1)
-    + Trait.new("mechanical parts, robot joints"),
+    + Trait.new("mechanical parts, robot joints")
+    :desc("a cyborg with mechanical prosthetic parts"),
 }

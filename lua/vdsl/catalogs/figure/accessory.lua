@@ -22,40 +22,34 @@ local Catalog = require("vdsl.catalog")
 
 return Catalog.new {
   -- === Eyewear ===
-  -- glasses: may be ignored on long prompts in SDXL base.
-  -- Place early or use (glasses:1.2).
-  -- Source: SDXL 1.0 Prompt Guide (yeschat.ai).
-  glasses    = Trait.new("glasses"),
-  sunglasses = Trait.new("sunglasses"),
-  eyepatch   = Trait.new("eyepatch"),
-  goggles    = Trait.new("goggles"),
+  glasses    = Trait.new("glasses"):desc("wearing glasses"),
+  sunglasses = Trait.new("sunglasses"):desc("wearing sunglasses"),
+  eyepatch   = Trait.new("eyepatch"):desc("wearing an eyepatch"),
+  goggles    = Trait.new("goggles"):desc("wearing goggles"),
 
   -- === Head / Hair ===
-  -- hat: generic. Use specific types for better results.
-  headband      = Trait.new("headband"),
-  hair_ribbon   = Trait.new("hair ribbon"),
-  hair_bow      = Trait.new("hair bow"),
-  hair_ornament = Trait.new("hair ornament"),
-  beret         = Trait.new("beret"),
-  crown         = Trait.new("crown"),
-  hood          = Trait.new("hood"),
-  witch_hat     = Trait.new("witch hat"),
+  headband      = Trait.new("headband"):desc("wearing a headband"),
+  hair_ribbon   = Trait.new("hair ribbon"):desc("a ribbon tied in the hair"),
+  hair_bow      = Trait.new("hair bow"):desc("a bow in the hair"),
+  hair_ornament = Trait.new("hair ornament"):desc("a decorative hair ornament"),
+  beret         = Trait.new("beret"):desc("wearing a beret"),
+  crown         = Trait.new("crown"):desc("wearing a crown"),
+  hood          = Trait.new("hood"):desc("wearing a hood"),
+  witch_hat     = Trait.new("witch hat"):desc("wearing a pointed witch hat"),
 
   -- === Neck ===
-  choker   = Trait.new("choker"),
-  necklace = Trait.new("necklace"),
-  scarf    = Trait.new("scarf"),
+  choker   = Trait.new("choker"):desc("wearing a choker around the neck"),
+  necklace = Trait.new("necklace"):desc("wearing a necklace"),
+  scarf    = Trait.new("scarf"):desc("wearing a scarf"),
 
   -- === Hands / Arms ===
-  -- gloves: also reduces hand-drawing artifacts.
-  -- Color specification recommended.
-  gloves            = Trait.new("gloves"),
-  fingerless_gloves = Trait.new("fingerless gloves"),
-  elbow_gloves      = Trait.new("elbow gloves"),
+  gloves            = Trait.new("gloves"):desc("wearing gloves"),
+  fingerless_gloves = Trait.new("fingerless gloves"):desc("wearing fingerless gloves"),
+  elbow_gloves      = Trait.new("elbow gloves"):desc("wearing long elbow-length gloves"),
 
   -- === Ears ===
-  earrings = Trait.new("earrings"),
+  earrings = Trait.new("earrings"):desc("wearing earrings"),
 
   -- === Face ===
-  mask = Trait.new("mask"),
+  mask = Trait.new("mask"):desc("wearing a mask"),
 }

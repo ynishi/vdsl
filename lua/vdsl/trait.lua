@@ -22,6 +22,7 @@ function Trait.new(text, emphasis)
   self._hints      = nil  -- nil = no hints, table = { op_type = params }
   self._confidence = nil  -- nil = unset (treated as 1.0), number = 0.0-1.0
   self._tags       = nil  -- nil = no tags, table = { key = value }
+  self._desc       = nil  -- nil = no natural language desc, string = desc text
   return self
 end
 
@@ -38,6 +39,7 @@ local function flatten_into(target, t)
       emphasis   = t.emphasis,
       confidence = t._confidence,
       tags       = t._tags,
+      desc       = t._desc,
     }
   end
 end
@@ -58,6 +60,7 @@ local merge_hints = merge_table
 -- Used by immutable-copy methods to preserve metadata across transforms.
 local function copy_meta(dst, src)
   dst._confidence = src._confidence
+  dst._desc       = src._desc
   if src._tags then
     dst._tags = {}
     merge_table(dst._tags, src._tags)
@@ -79,6 +82,11 @@ function Trait.__mul(a, b)
 
   local text = a:resolve() .. " " .. b:resolve()
   local result = Trait.new(text)
+
+  -- Merge desc (space-join, same as tags)
+  if a._desc or b._desc then
+    result._desc = (a._desc or a.text) .. " " .. (b._desc or b.text)
+  end
 
   -- Merge hints
   if a._hints or b._hints then
@@ -146,6 +154,14 @@ function Trait.__add(a, b)
     for _, p in ipairs(composite._parts) do
       merge_table(composite._tags, p.tags)
     end
+  end
+
+  -- Propagate desc: right operand's _desc becomes composite _desc.
+  -- Supports pattern: Trait.new("tag") + Trait.new("supplement"):desc("whole description")
+  if b._desc then
+    composite._desc = b._desc
+  elseif a._desc then
+    composite._desc = a._desc
   end
 
   return composite
@@ -349,11 +365,77 @@ function Trait:boost(delta)
   return new
 end
 
+--- Set natural language description. Returns a new Trait (immutable).
+-- Natural language descriptions are used by compilers that prefer
+-- descriptive text over danbooru-style tags (e.g. Z-Image).
+-- @param text string natural language description
+-- @return Trait
+function Trait:desc(text)
+  if type(text) ~= "string" or text == "" then
+    error("Trait:desc: text must be a non-empty string", 2)
+  end
+  local new = setmetatable({}, Trait)
+  if self._parts then
+    new._parts = {}
+    for _, p in ipairs(self._parts) do
+      new._parts[#new._parts + 1] = {
+        text       = p.text,
+        emphasis   = p.emphasis,
+        confidence = p.confidence,
+        tags       = p.tags,
+        desc       = p.desc,
+      }
+    end
+  else
+    new.text     = self.text
+    new.emphasis = self.emphasis
+  end
+  copy_meta(new, self)
+  new._desc = text
+  return new
+end
+
+--- Get natural language description (nil if unset).
+-- @return string|nil
+function Trait:get_desc()
+  return self._desc
+end
+
 --- Resolve to a prompt string.
 -- Applies emphasis syntax: (text:1.5) for non-1.0 emphasis.
 -- Confidence and tags do NOT affect prompt text (metadata only).
+-- @param mode string|nil "natural" to prefer desc over tags, nil for default
 -- @return string
-function Trait:resolve()
+function Trait:resolve(mode)
+  if mode == "natural" then
+    -- Natural language mode: prefer _desc if available
+    if self._desc then
+      return self._desc
+    end
+    -- Composite: check if any part has desc
+    if self._parts then
+      local parts = {}
+      for _, p in ipairs(self._parts) do
+        if p.desc then
+          parts[#parts + 1] = p.desc
+        else
+          parts[#parts + 1] = p.text
+        end
+      end
+      return table.concat(parts, ", ")
+    end
+    -- Fallback: use tag text without emphasis syntax (natural mode)
+    if self._parts then
+      local parts = {}
+      for _, p in ipairs(self._parts) do
+        parts[#parts + 1] = p.text
+      end
+      return table.concat(parts, ", ")
+    end
+    return self.text
+  end
+
+  -- Default (tag) mode: original behavior with emphasis syntax
   if self._parts then
     local parts = {}
     for _, p in ipairs(self._parts) do

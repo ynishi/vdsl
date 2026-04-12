@@ -25,55 +25,55 @@ local Catalog = require("vdsl.catalog")
 
 return Catalog.new {
   -- === Tops ===
-  shirt          = Trait.new("shirt"),
-  t_shirt        = Trait.new("t-shirt"),
-  blouse         = Trait.new("blouse"),
-  tank_top       = Trait.new("tank top"),
-  hoodie         = Trait.new("hoodie"),
-  sweater        = Trait.new("sweater"),
-  cardigan       = Trait.new("cardigan"),
-  crop_top       = Trait.new("crop top"),
+  shirt          = Trait.new("shirt"):desc("wearing a shirt"),
+  t_shirt        = Trait.new("t-shirt"):desc("wearing a t-shirt"),
+  blouse         = Trait.new("blouse"):desc("wearing a blouse"),
+  tank_top       = Trait.new("tank top"):desc("wearing a tank top"),
+  hoodie         = Trait.new("hoodie"):desc("wearing a hoodie"),
+  sweater        = Trait.new("sweater"):desc("wearing a sweater"),
+  cardigan       = Trait.new("cardigan"):desc("wearing a cardigan"),
+  crop_top       = Trait.new("crop top"):desc("wearing a crop top"),
 
   -- === Bottoms ===
-  skirt          = Trait.new("skirt"),
-  pleated_skirt  = Trait.new("pleated skirt"),
-  miniskirt      = Trait.new("miniskirt"),
-  pants          = Trait.new("pants"),
-  jeans          = Trait.new("jeans"),
-  shorts         = Trait.new("shorts"),
+  skirt          = Trait.new("skirt"):desc("wearing a skirt"),
+  pleated_skirt  = Trait.new("pleated skirt"):desc("wearing a pleated skirt"),
+  miniskirt      = Trait.new("miniskirt"):desc("wearing a miniskirt"),
+  pants          = Trait.new("pants"):desc("wearing pants"),
+  jeans          = Trait.new("jeans"):desc("wearing jeans"),
+  shorts         = Trait.new("shorts"):desc("wearing shorts"),
 
   -- === Dress / One-piece ===
-  dress          = Trait.new("dress"),
-  sundress       = Trait.new("sundress"),
-  evening_gown   = Trait.new("evening gown"),
-  wedding_dress  = Trait.new("wedding dress"),
+  dress          = Trait.new("dress"):desc("wearing a dress"),
+  sundress       = Trait.new("sundress"):desc("wearing a sundress"),
+  evening_gown   = Trait.new("evening gown"):desc("wearing an elegant evening gown"),
+  wedding_dress  = Trait.new("wedding dress"):desc("wearing a wedding dress"),
 
   -- === Outerwear ===
-  jacket         = Trait.new("jacket"),
-  blazer         = Trait.new("blazer"),
-  coat           = Trait.new("coat"),
+  jacket         = Trait.new("jacket"):desc("wearing a jacket"),
+  blazer         = Trait.new("blazer"):desc("wearing a blazer"),
+  coat           = Trait.new("coat"):desc("wearing a coat"),
 
   -- === Uniforms ===
   -- school_uniform: 830K posts. Most stable uniform tag.
-  school_uniform   = Trait.new("school uniform"),
+  school_uniform   = Trait.new("school uniform"):desc("wearing a school uniform"),
   -- serafuku: Danbooru standalone tag. Implies sailor_collar etc.
-  serafuku         = Trait.new("serafuku"),
-  military_uniform = Trait.new("military uniform"),
-  maid             = Trait.new("maid"),
-  suit             = Trait.new("business suit"),
+  serafuku         = Trait.new("serafuku"):desc("wearing a Japanese sailor-style school uniform"),
+  military_uniform = Trait.new("military uniform"):desc("wearing a military uniform"),
+  maid             = Trait.new("maid"):desc("wearing a maid outfit"),
+  suit             = Trait.new("business suit"):desc("wearing a business suit"),
 
   -- === Traditional ===
-  kimono        = Trait.new("kimono"),
-  yukata        = Trait.new("yukata"),
-  chinese_dress = Trait.new("chinese dress"),
+  kimono        = Trait.new("kimono"):desc("wearing a traditional Japanese kimono"),
+  yukata        = Trait.new("yukata"):desc("wearing a Japanese yukata"),
+  chinese_dress = Trait.new("chinese dress"):desc("wearing a Chinese dress"),
 
   -- === Swimwear / Bodysuit ===
-  swimsuit   = Trait.new("swimsuit"),
-  bikini     = Trait.new("bikini"),
-  leotard    = Trait.new("leotard"),
+  swimsuit   = Trait.new("swimsuit"):desc("wearing a swimsuit"),
+  bikini     = Trait.new("bikini"):desc("wearing a bikini"),
+  leotard    = Trait.new("leotard"):desc("wearing a leotard"),
 
   -- === Armor ===
   -- full_armor causes joint distortion. Use part-based tags with ControlNet.
-  armor          = Trait.new("armor"),
-  shoulder_armor = Trait.new("shoulder armor"),
+  armor          = Trait.new("armor"):desc("wearing armor"),
+  shoulder_armor = Trait.new("shoulder armor"):desc("wearing shoulder armor"),
 }

@@ -50,12 +50,13 @@ end
 --- Resolve any value to a prompt string.
 -- Handles: nil → "", string → passthrough, entity with :resolve() → call it.
 -- @param value any
+-- @param mode string|nil "natural" to prefer desc over tags, nil for default
 -- @return string
-function M.resolve_text(value)
+function M.resolve_text(value, mode)
   if value == nil then return "" end
   if type(value) == "string" then return value end
   if type(value) == "table" and type(value.resolve) == "function" then
-    return value:resolve()
+    return value:resolve(mode)
   end
   return tostring(value)
 end

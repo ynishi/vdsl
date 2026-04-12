@@ -19,74 +19,76 @@ local Catalog = require("vdsl.catalog")
 return Catalog.new {
   -- === Light effects ===
   bloom = Trait.new("bloom, light bloom", 1.1)
-    + Trait.new("glow, soft light diffusion"),
+    + Trait.new("glow, soft light diffusion")
+    :desc("bloom effect with soft glowing light diffusion"),
 
   light_particles = Trait.new("light particles", 1.1)
-    + Trait.new("floating particles, dust motes, sparkles"),
+    + Trait.new("floating particles, dust motes, sparkles")
+    :desc("floating light particles, dust motes, and sparkles in the air"),
 
-  lens_flare = Trait.new("lens flare, light flare"),
+  lens_flare = Trait.new("lens flare, light flare")
+    :desc("lens flare from a bright light source"),
 
   -- === Film/analog effects ===
   film_grain = Trait.new("film grain", 1.1)
-    + Trait.new("analog noise, grain texture"),
+    + Trait.new("analog noise, grain texture")
+    :desc("analog film grain noise texture"),
 
-  vignette = Trait.new("vignetting, vignette, darkened edges"),
+  vignette = Trait.new("vignetting, vignette, darkened edges")
+    :desc("vignette effect with darkened edges"),
 
   -- === Motion effects ===
-  motion_blur = Trait.new("motion blur", 1.1),
+  motion_blur = Trait.new("motion blur", 1.1)
+    :desc("motion blur conveying movement and speed"),
 
   -- === Artistic effects ===
   double_exposure = Trait.new("double exposure", 1.1)
-    + Trait.new("overlay, merged images"),
+    + Trait.new("overlay, merged images")
+    :desc("double exposure effect with overlaid merged images"),
 
   spot_color = Trait.new("spot color", 1.1)
-    + Trait.new("selective color, monochrome with color accent"),
+    + Trait.new("selective color, monochrome with color accent")
+    :desc("spot color effect with selective color accent on a monochrome image"),
 
   glitch = Trait.new("glitch art", 1.1)
-    + Trait.new("digital distortion, data corruption"),
+    + Trait.new("digital distortion, data corruption")
+    :desc("glitch art with digital distortion and data corruption artifacts"),
 
   -- === Lens / Optical effects ===
   chromatic_aberration = Trait.new("chromatic aberration", 1.1)
-    + Trait.new("color fringing, RGB shift"),
+    + Trait.new("color fringing, RGB shift")
+    :desc("chromatic aberration with color fringing and RGB shift"),
 
   halation = Trait.new("halation", 1.1)
-    + Trait.new("light bleed, film halation, soft glow around highlights"),
+    + Trait.new("light bleed, film halation, soft glow around highlights")
+    :desc("film halation with soft glowing light bleed around highlights"),
 
   light_leak = Trait.new("light leak", 1.1)
-    + Trait.new("film light leak, warm color wash, analog photography"),
+    + Trait.new("film light leak, warm color wash, analog photography")
+    :desc("analog film light leak with a warm color wash"),
 
   -- === Scene particles / visual props ===
-  -- Concrete visual objects scattered in the scene.
-  -- Tested: seed-fixed A/B comparison on anime (novaAnimeXL) and
-  --         photo (RealVisXL Lightning) checkpoints.
-  --
-  -- Model compatibility:
-  --   anime+photo : bubbles, feathers, butterflies
-  --   anime only  : confetti (photo: turns to bokeh), scattered_papers (photo: no effect)
-  --   anime+photo*: embers (photo: warm bokeh glow, weak particle feel but atmospheric)
-
-  -- anime+photo: soap bubbles. Transparent, iridescent reflections. Stable on both.
   bubbles = Trait.new("soap bubbles", 1.1)
-    + Trait.new("floating bubbles, iridescent"),
+    + Trait.new("floating bubbles, iridescent")
+    :desc("floating iridescent soap bubbles"),
 
-  -- anime+photo: white feathers. Especially striking on photo models (fashion-shoot feel).
   feathers = Trait.new("feathers", 1.1)
-    + Trait.new("white feathers, floating feathers"),
+    + Trait.new("white feathers, floating feathers")
+    :desc("white feathers floating gently in the air"),
 
-  -- anime+photo: butterflies. Slightly fantasy-leaning on photo but still works.
   butterflies = Trait.new("butterflies", 1.1)
-    + Trait.new("colorful butterflies, flying"),
+    + Trait.new("colorful butterflies, flying")
+    :desc("colorful butterflies flying around"),
 
-  -- anime only: on photo models turns into bokeh light. On anime renders as confetti.
   confetti = Trait.new("confetti", 1.1)
-    + Trait.new("colorful confetti, scattered"),
+    + Trait.new("colorful confetti, scattered")
+    :desc("colorful confetti scattered in the air"),
 
-  -- anime only: completely ignored on photo models. Dramatic visual change on anime.
   scattered_papers = Trait.new("scattered papers", 1.1)
-    + Trait.new("flying papers, pages"),
+    + Trait.new("flying papers, pages")
+    :desc("papers and pages scattered and flying through the air"),
 
-  -- anime+photo*: adding "glowing" makes it a light source. "scattered, small particles" disperses.
-  -- On photo models rendered as warm bokeh glow (weak particle feel).
   embers = Trait.new("embers", 1.1)
-    + Trait.new("floating embers, scattered, small particles"),
+    + Trait.new("floating embers, scattered, small particles")
+    :desc("glowing embers floating as small scattered particles"),
 }
