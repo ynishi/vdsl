@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **Profile DSL** (`vdsl.profile` / `vdsl.secret`) — declarative
+  ComfyUI-on-pod configuration: ComfyUI ref, Python deps, custom nodes,
+  models, env secrets, B2 sync routes, install hooks. Produces a
+  canonical JSON manifest (sorted keys, stable array order). Apply is
+  orchestrator-driven: the MCP tool `vdsl_profile_apply` expands the
+  manifest into a sequence of existing MCP tool calls on the client
+  side; the pod runs no convergence script of its own. Source schemes
+  for models and sync routes are limited to `b2://` (Backblaze B2) and
+  `file://` — stage external assets into B2 before referencing them.
+  Model `kind` covers all 20+ ComfyUI `folder_paths.py` directories
+  (checkpoints, loras, vae, diffusion_models, text_encoders,
+  audio_encoders, model_patches, photomaker, …); `subdir = "<path>"`
+  is the escape hatch for custom directories.
+- **`docs/profile-and-orchestration.md`** — design doc covering the
+  Profile DSL, the generic `vdsl_batch_tools` primitive, the
+  `vdsl_profile_apply` composer (phase → step mapping, secret
+  resolution, ComfyUI restart + `/object_info` health check), cross-repo
+  responsibilities, and explicit non-scope.
+- **`examples/11_profile.lua`** — worked B2-only fantasy-preset profile.
+- **`tests/test_profile.lua`** — DSL validation and hash-stability tests.
+
 ## [0.4.0] - 2026-04-12
 
 ### Highlights

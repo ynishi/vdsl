@@ -72,6 +72,20 @@ function M.catalog(entries)
   return Catalog.new(entries)
 end
 
+--- Construct a declarative ComfyUI-on-pod Profile.
+-- See lua/vdsl/runtime/profile.lua for schema and usage.
+function M.profile(spec)
+  local Profile = require("vdsl.runtime.profile")
+  return Profile.new(spec)
+end
+
+--- Reference an env-var secret inside a profile.
+-- @param name string env var name resolved on the pod at apply time.
+function M.secret(name)
+  local Profile = require("vdsl.runtime.profile")
+  return Profile.secret(name)
+end
+
 
 -- vdsl.lora() removed.
 -- LoRA is a World resource, not a DSL entity constructor.
