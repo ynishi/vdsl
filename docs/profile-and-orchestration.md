@@ -243,20 +243,32 @@ The restart script itself polls `curl` on `localhost:<port>` until the
 server answers, so when the exec returns, the health check in Phase 10
 can fire without a race. The script:
 
-1. `pgrep -f '[.]venv/bin/python main\.py' | xargs -r kill || true`
-2. waits for the port to free (bounded 30s)
+1. `pgrep -f '[.]venv/bin/python main\.py' | grep -vx "$$" | grep -vx "$PPID" | xargs -r kill || true`
+2. waits for the port to free via `ss -ltnH "sport = :<port>" | grep -q LISTEN` (bounded 30s)
 3. `mkdir -p /workspace/.vdsl` — ensure log destination exists
 4. `nohup .venv/bin/python main.py <args> > /workspace/.vdsl/comfyui.log 2>&1 &`
 5. polls `http://localhost:<port>/` until it responds (bounded 180s)
 
-The `[.]venv` regex-escape trick ensures the bash wrapper running
-this script (whose argv contains the script text literally, including
-`.venv/bin/python`) does not SIGTERM itself. The pattern matches the
-actual `.venv/bin/python main.py --listen ...` argv. An earlier
-pattern `[p]ython .*ComfyUI/main\.py` targeted a path form that is
-never present in argv (cwd is already `/workspace/ComfyUI`), so the
-old server survived and the new bind failed with `EADDRINUSE` — that
-bug cost us a full smoke-test cycle before it was caught.
+Three subtle bugs had to be fixed in this script before it was stable;
+the current form encodes all three fixes:
+
+- **pkill regex shape.** The pattern matches the actual cwd-relative
+  `.venv/bin/python main.py --listen ...` argv. An earlier form
+  `[p]ython .*ComfyUI/main\.py` targeted a path that is never present
+  in argv (cwd is already `/workspace/ComfyUI`), so the old server
+  survived the restart and the new bind failed with `EADDRINUSE`.
+- **Self-exclude from pkill.** The script text itself contains the
+  literal `.venv/bin/python main.py` on the nohup launch line, and the
+  wrapper shell's cmdline is `bash -c <script_text>`. `pgrep -f`
+  therefore matches the wrapper too and `xargs kill` TERMs it
+  mid-run. Filtering out `$$` (this shell) and `$PPID` (ssh-level
+  parent) leaves only the actual ComfyUI process in the kill list.
+- **Port-free wait via `ss`.** The RunPod base image does not ship
+  `lsof`. An earlier `while lsof -i:$PORT; do ...; done` hit
+  "command not found" on the first iteration and the loop exited
+  immediately — no wait happened, and nohup raced the kernel's
+  socket teardown. `ss` ships in iproute2 and is present on the
+  base image.
 
 The polling mode of `pod_exec_script` is what makes this a single
 step rather than a kill-then-sleep-then-check chain.
