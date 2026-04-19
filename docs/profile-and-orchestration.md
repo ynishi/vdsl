@@ -84,6 +84,9 @@ are two ways to specify it:
 | `latent_upscale`  | `latent_upscale_models` | Latent-space upscalers                    |
 | `classifier`      | `classifiers`           | Classifiers (NSFW detection etc.)         |
 | `config`          | `configs`               | Model YAML configs                        |
+| `face_restore`    | `facerestore_models`    | GFPGAN / CodeFormer weights (`facerestore_cf`) |
+| `detector_bbox`   | `ultralytics/bbox`      | Impact Pack YOLO bbox detectors           |
+| `detector_segm`   | `ultralytics/segm`      | Impact Pack YOLO segmentation detectors   |
 
 Modern single-weight models (Z-Image Turbo, Flux, SD3 etc.) place UNet
 weights under `diffusion_models/` and text encoders under
@@ -117,6 +120,23 @@ assets into B2 before referencing them from a Profile. Rationale:
 manifest records the reference, not the value. Resolution happens in
 the orchestrator at apply time from the caller's environment (e.g.
 RunPod pod-level secrets, a local `.env`, or explicit CLI flags).
+
+**Scope: runtime env for processes that run on the pod.** Use this
+for things a custom node or ComfyUI itself reads at runtime — for
+example a HuggingFace token that a node uses to fetch an auxiliary
+model at first use.
+
+**Not for B2 credentials.** B2 auth is resolved MCP-side. When any
+`models[]` entry has a `b2://…` src, the apply handler reads
+`VDSL_B2_KEY_ID` / `VDSL_B2_KEY` from the orchestrator's own env
+(`.mcp.json`) and pre-populates them in the secrets map (fail-fast
+with `MissingSecrets` if unset). Phase 7 then emits an exec step per
+model that `export`s them into that single rclone process only —
+they never touch `~/.bashrc` or any persistent file on the pod. A
+Profile that references `b2://…` sources does NOT need — and must
+not include — an `env = { B2_APPLICATION_KEY = vdsl.secret(...) }`
+block. Injecting B2 keys into `manifest.env` would leak them into
+every phase's shell and violates the dumb-pod principle (§1).
 
 ### 2.5 Canonical manifest
 
@@ -205,10 +225,10 @@ vdsl_profile_apply({
 | 1 | `system.apt`             | `pod_exec_script`         | single shell line                        |
 | 2 | `comfyui` install        | `pod_exec_script`         | clone / checkout / venv / requirements.txt |
 | 3 | `python.deps`            | `pod_exec_script`         | venv pip install                         |
-| 4 | `custom_nodes`           | `pod_exec_script` × N     | one step per node (sequential)           |
+| 4 | `custom_nodes`           | `pod_exec_script` × N     | one step per node (sequential); `pip=true` installs `requirements.txt` with torch-family filter (see §4.3) |
 | 5 | `sync_route` register    | `sync_route`              | one per `sync.pull` + `sync.push`; idempotent |
 | 6 | `sync.pull`              | `sync` × N                | `validate: file_exists` on a canary path |
-| 7 | `models`                 | `sync` or `pod_exec_script` (`cp`) | `b2://` → sync, `file://` → cp  |
+| 7 | `models`                 | `pod_exec_script` (`rclone` or `cp`) | `b2://` → rclone copyto (serial), `file://` → cp |
 | 8 | `hooks.post_install`     | `pod_exec_script`         | if present                               |
 | 9 | ComfyUI restart          | `pod_exec_script` (polling) | kill + nohup relaunch in one script    |
 |10 | health check             | `comfy_api` GET `/object_info` | confirms node graph loaded fully    |
@@ -218,15 +238,55 @@ Triggering belongs to generation / output flows, not setup.
 
 ### 4.2 ComfyUI restart
 
-Pod-side restart is a single `pod_exec_script` invocation that:
+Phase 9 is a single blocking `exec` step (not a task_run+task_status pair).
+The restart script itself polls `curl` on `localhost:<port>` until the
+server answers, so when the exec returns, the health check in Phase 10
+can fire without a race. The script:
 
-1. `pkill -f ComfyUI/main.py || true`
-2. waits for the port to free
-3. `nohup .venv/bin/python main.py <args> > /workspace/.vdsl/comfyui.log 2>&1 &`
-4. polls `http://localhost:<port>/` until it responds
+1. `pgrep -f '[.]venv/bin/python main\.py' | xargs -r kill || true`
+2. waits for the port to free (bounded 30s)
+3. `mkdir -p /workspace/.vdsl` — ensure log destination exists
+4. `nohup .venv/bin/python main.py <args> > /workspace/.vdsl/comfyui.log 2>&1 &`
+5. polls `http://localhost:<port>/` until it responds (bounded 180s)
+
+The `[.]venv` regex-escape trick ensures the bash wrapper running
+this script (whose argv contains the script text literally, including
+`.venv/bin/python`) does not SIGTERM itself. The pattern matches the
+actual `.venv/bin/python main.py --listen ...` argv. An earlier
+pattern `[p]ython .*ComfyUI/main\.py` targeted a path form that is
+never present in argv (cwd is already `/workspace/ComfyUI`), so the
+old server survived and the new bind failed with `EADDRINUSE` — that
+bug cost us a full smoke-test cycle before it was caught.
 
 The polling mode of `pod_exec_script` is what makes this a single
 step rather than a kill-then-sleep-then-check chain.
+
+### 4.3 Custom-node pip with torch-family filter
+
+Phase 4 runs, for each node with `pip = true`:
+
+```sh
+if [ -f /workspace/ComfyUI/custom_nodes/<name>/requirements.txt ]; then
+  grep -viE '^[[:space:]]*(torch|torchvision|torchaudio|xformers|bitsandbytes|triton)([[:space:]=<>~!;]|$)' \
+    /workspace/ComfyUI/custom_nodes/<name>/requirements.txt \
+    | /workspace/ComfyUI/.venv/bin/pip install -r /dev/stdin;
+fi
+```
+
+The grep filter drops `torch` / `torchvision` / `torchaudio` /
+`xformers` / `bitsandbytes` / `triton` lines before piping to pip.
+Rationale: RunPod images ship a CUDA-driver-pinned torch (e.g.
+`torch==2.5.1+cu124` on driver 550.127). Unfiltered custom-node
+requirements can pull a newer torch (Impact Pack requested
+`torch==2.11.0`), which loads fine at import but fails on first CUDA
+call with `driver too old (found 12040)` — silently breaking every
+downstream sampler. The filter preserves the image's torch while
+installing everything else the node actually needs (`segment-anything`,
+`ultralytics`, `piexif`, etc.).
+
+If a node genuinely needs a different torch, don't set `pip = true`;
+handle it via `hooks.post_install` with an explicit
+`--index-url https://download.pytorch.org/whl/cu<major>` pin.
 
 ### 4.3 Health check
 
@@ -258,6 +318,24 @@ Schema changes in `profile.lua` require a matching update in
 `vdsl-mcp`'s manifest parser. Follow the cross-repo rule from the
 root `CLAUDE.md`: grep for hard-coded `require("vdsl.runtime.profile")`
 or JSON-schema string constants and update them in the same PR.
+
+## 5.1 Reference profiles
+
+Reusable profiles live under `projects/profiles/` (gitignored user area;
+check in per-project). The expected flow for a new ephemeral pod on the
+RunPod pytorch base (`runpod/pytorch:*-devel`) is:
+
+1. `vdsl_pod_create` with the pytorch image + desired GPU.
+2. `vdsl_profile_apply(manifest = "projects/profiles/<name>.lua", pod_id = ...)`.
+3. `vdsl_connect(pod_id = ..., wait = true)` once the health check passes.
+
+| Profile                                  | Stack                                      | Notes                                          |
+|------------------------------------------|--------------------------------------------|------------------------------------------------|
+| `projects/profiles/zimage_turbo.lua`     | ComfyUI + ZImagePowerNodes + Z-Image Turbo | Mirrors `scripts/infra/setup_comfyui_pod.sh`'s Python-3.12-on-pytorch approach; weights pulled from B2. |
+
+Profiles replace the legacy `scripts/infra/setup_comfyui_pod.sh` manual
+path: that script still works for the pre-seeded network volume case,
+but new ephemeral pods should converge via `vdsl_profile_apply`.
 
 ## 6. Non-scope
 

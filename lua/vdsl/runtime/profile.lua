@@ -69,6 +69,10 @@ local KIND_TO_DIR = {
   latent_upscale  = "latent_upscale_models",
   classifier      = "classifiers",
   config          = "configs",
+  -- Custom-node registered trees (Impact Pack, facerestore_cf):
+  face_restore    = "facerestore_models",
+  detector_bbox   = "ultralytics/bbox",
+  detector_segm   = "ultralytics/segm",
 }
 
 --- Allowed src schemes for models and sync routes.
@@ -164,7 +168,7 @@ local function normalize_comfyui(c)
     repo = repo,
     ref  = ref,
     port = port,
-    args = args,
+    args = #args == 0 and json.array({}) or args,
   }
 end
 
@@ -225,7 +229,7 @@ local function normalize_custom_nodes(list)
 
     out[i] = {
       repo = n.repo,
-      ref  = n.ref or "main",
+      ref  = n.ref,  -- nil → omitted from JSON, mcp clones default branch
       pip  = n.pip == true,
       post = n.post,
       name = derived_name,

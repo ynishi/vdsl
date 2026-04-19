@@ -111,6 +111,21 @@ T.eq("ext: latent_upscale", p_ext.models[5].subdir, "latent_upscale_models")
 T.eq("ext: classifier",     p_ext.models[6].subdir, "classifiers")
 T.eq("ext: config",         p_ext.models[7].subdir, "configs")
 
+-- Custom-node kinds (Impact Pack detectors, facerestore_cf)
+local p_cn = vdsl.profile {
+  name = "custom_node_kinds",
+  comfyui = { ref = "master" },
+  models = {
+    { kind = "face_restore",  dst = "gfpgan.pth",      src = "b2://v/facerestore_models/gfpgan.pth" },
+    { kind = "detector_bbox", dst = "face_yolov8m.pt", src = "b2://v/ultralytics/bbox/face_yolov8m.pt" },
+    { kind = "detector_segm", dst = "person_yolov8m-seg.pt",
+      src  = "b2://v/ultralytics/segm/person_yolov8m-seg.pt" },
+  },
+}
+T.eq("cn: face_restore",  p_cn.models[1].subdir, "facerestore_models")
+T.eq("cn: detector_bbox", p_cn.models[2].subdir, "ultralytics/bbox")
+T.eq("cn: detector_segm", p_cn.models[3].subdir, "ultralytics/segm")
+
 -- subdir escape hatch for custom / unlisted directories
 local p_sub = vdsl.profile {
   name = "custom_subdir",
