@@ -97,15 +97,17 @@ Unknown `kind` values are rejected during normalization. When ComfyUI
 adds a new directory that isn't yet in the preset table, use `subdir`
 as an immediate escape and file an issue to promote it.
 
-### 2.3 Source schemes (models + sync routes)
+### 2.3 Source schemes
 
-**Only two schemes are supported**:
+#### `models[].src`
 
-- `b2://bucket/path` — Backblaze B2 object storage
-- `file://absolute/path` — local file already on the pod filesystem
+Supports two schemes:
 
-HuggingFace, Civitai, and direct HTTP(S) are **out of scope**. Stage
-assets into B2 before referencing them from a Profile. Rationale:
+- `b2://bucket/path` — Backblaze B2 object storage (fetched via `rclone`)
+- `file:///absolute/path` — local file already on the pod filesystem (fetched via `cp`)
+
+HuggingFace, Civitai, and direct HTTP(S) are **out of scope** here.
+Stage assets into B2 before referencing them from a Profile. Rationale:
 
 - B2 is content-addressed for our pipeline; no separate sha256
   verification is needed at apply time.
@@ -113,6 +115,40 @@ assets into B2 before referencing them from a Profile. Rationale:
 - No per-provider auth / rate-limit handling on the pod.
 - Cache locality: the same asset used across pods hits a single B2
   prefix.
+
+#### `sync.pull[]` and `sync.push[]`
+
+Sync routes connect **pod ↔ B2 only**. Both directions use the same two
+schemes but pinned by direction:
+
+| Direction     | `src`                          | `dst`                          |
+|---------------|--------------------------------|--------------------------------|
+| `sync.pull`   | `b2://<bucket>/<path>`         | `/absolute/pod/path`           |
+| `sync.push`   | `/absolute/pod/path`           | `b2://<bucket>/<path>`         |
+
+- B2 side **must** use the `b2://` scheme. `file://` is rejected.
+- Pod side **must** be an absolute path (`/workspace/...`). Relative
+  paths and `..` segments are rejected.
+- `{pod_id}` placeholder inside the B2 path is substituted with the
+  target pod id at expansion time. Example:
+  `"b2://mybucket/output/{pod_id}/"` → `"b2://mybucket/output/<actual_pod_id>/"`.
+- No pod-to-pod, pod-to-local, or local-to-local sync is supported
+  through Profile. Sync edges that involve the orchestrator's local
+  filesystem or another pod use the separate `vdsl_sync` / `sync_route`
+  tools directly.
+
+##### Phase 5 execution model
+
+- `sync.pull` runs **at apply time**: each route emits a blocking
+  `rclone copyto` step. The pod exits Phase 5 only after every pull
+  route has finished. The download is part of pod setup — models and
+  input data must be in place before ComfyUI restarts in Phase 9.
+- `sync.push` is **registered but not uploaded at apply time**. Each
+  route appends a marker line to `/workspace/.vdsl/push_routes.jsonl`
+  on the pod. Actual upload happens later (generation flow, output
+  flush, scheduled sync), driven by whatever component reads the
+  marker file. Apply is for setup; push uploads belong to downstream
+  output flows, not bootstrapping.
 
 ### 2.4 Secret sentinel
 
@@ -226,15 +262,16 @@ vdsl_profile_apply({
 | 2 | `comfyui` install        | `pod_exec_script`         | clone / checkout / venv / requirements.txt |
 | 3 | `python.deps`            | `pod_exec_script`         | venv pip install                         |
 | 4 | `custom_nodes`           | `pod_exec_script` × N     | one step per node (sequential); `pip=true` installs `requirements.txt` with torch-family filter (see §4.3) |
-| 5 | `sync_route` register    | `sync_route`              | one per `sync.pull` + `sync.push`; idempotent |
-| 6 | `sync.pull`              | `sync` × N                | `validate: file_exists` on a canary path |
+| 5 | `sync.pull` / `sync.push`| `pod_exec_script` × N     | pull: blocking `rclone copyto`; push: append marker to `/workspace/.vdsl/push_routes.jsonl` (no upload) |
+| 6 | *(unused)*               | —                         | Phase 6 intentionally vacant; marker-based push has no poll step |
 | 7 | `models`                 | `pod_exec_script` (`rclone` or `cp`) | `b2://` → rclone copyto (serial), `file://` → cp |
 | 8 | `hooks.post_install`     | `pod_exec_script`         | if present                               |
 | 9 | ComfyUI restart          | `pod_exec_script` (polling) | kill + nohup relaunch in one script    |
 |10 | health check             | `comfy_api` GET `/object_info` | confirms node graph loaded fully    |
 
-`sync.push` routes are **registered but not triggered** during apply.
-Triggering belongs to generation / output flows, not setup.
+`sync.push` upload itself is **not triggered** during apply; only the
+marker file is written. Upload belongs to downstream output flows
+(generation completion, scheduled flush) that consume the marker.
 
 ### 4.2 ComfyUI restart
 
