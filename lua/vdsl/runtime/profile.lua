@@ -17,6 +17,48 @@
 -- referencing them; HuggingFace / Civitai / direct HTTP(S) are out of
 -- scope.
 --
+-- ---------------------------------------------------------------
+-- SECRETS: user profiles MUST NOT declare them.
+-- ---------------------------------------------------------------
+-- The whole point of MCP-side profile evaluation is that MCP already
+-- knows which credentials each expanded phase needs and injects them
+-- into the corresponding batch step's env at apply time:
+--   - B2 pull / push steps    → VDSL_B2_KEY_ID, VDSL_B2_KEY
+--   - (future auth integrations add their own here)
+-- None of these appear in the Profile written by the user. They are
+-- added by vdsl-mcp's profile_service during manifest → BatchPlan
+-- expansion.
+--
+-- Consequently `env` in a user Profile is for non-secret runtime
+-- configuration only (COMFYUI_PORT-like values). Secret-shaped keys
+-- (KEY / SECRET / TOKEN / PASSWORD / PWD / AUTH / CRED / APIKEY,
+-- case-insensitive) are rejected at normalization. `vdsl.secret()`
+-- has been removed entirely — there is no sentinel path for secrets
+-- in user-authored profiles.
+--
+-- Also reading secrets off the host filesystem (e.g. sourcing a local
+-- `.env`) and pasting them inline into a pod command is forbidden —
+-- always go through MCP's injection path, never around it.
+--
+-- ---------------------------------------------------------------
+-- NO DSL-BYPASS: pod file ops go through Profile evaluation only.
+-- ---------------------------------------------------------------
+-- Structurally the same rule as SECRETS above, one layer out:
+-- every pod-side file operation that is part of apply / setup /
+-- staging must be expressible in this DSL and happen via
+-- `expand_phases` in vdsl-mcp/crates/vdsl-mcp/src/application/
+-- profile_service.rs. Hand-rolled `mv` / `cp` / `ln` via
+-- `vdsl_exec`, direct `rclone` / `wget` / `curl` on the pod, and
+-- piggybacking on `vdsl_storage_push` by pre-mv'ing files into
+-- its 8 `MODEL_DIRS` categories are all prohibited.
+--
+-- If you hit an operation this DSL cannot express, the fix is to
+-- add a new block here (and a matching expansion in
+-- `profile_service.rs`), NOT to reach around the DSL. See
+-- docs/profile-and-orchestration.md §2.5 for the rationale and
+-- concrete patterns (e.g. staging.push, non-preset subdirs, new
+-- source schemes).
+--
 -- Minimal example:
 --   local vdsl = require("vdsl")
 --   local p = vdsl.profile {
@@ -84,25 +126,6 @@ local ALLOWED_SCHEMES = {
 }
 
 local PROFILE_MT = { __index = {} }
-local SECRET_MT  = {}
-
--- ============================================================
--- Secret sentinel
--- ============================================================
-
---- Reference an env-var secret without baking its value into the profile.
--- The manifest stores {"__secret": "NAME"}; apply_profile.sh resolves it
--- from the pod's environment at apply time.
-function M.secret(name)
-  if type(name) ~= "string" or name == "" then
-    error("vdsl.secret: name must be a non-empty string", 2)
-  end
-  return setmetatable({ __secret = name }, SECRET_MT)
-end
-
-local function is_secret(v)
-  return type(v) == "table" and getmetatable(v) == SECRET_MT
-end
 
 -- ============================================================
 -- Helpers
@@ -128,10 +151,8 @@ local function has_prefix(s, prefix)
   return s:sub(1, #prefix) == prefix
 end
 
---- Deep-copy a plain table (secrets preserved as sentinels).
 local function deepcopy(v)
   if type(v) ~= "table" then return v end
-  if is_secret(v) then return v end
   local out = {}
   for k, vv in pairs(v) do
     out[k] = deepcopy(vv)
@@ -305,20 +326,43 @@ local function normalize_models(list)
   return #out == 0 and json.array({}) or out
 end
 
+-- Keys that look secret-shaped. Rejected unconditionally.
+-- Profile.env is for non-secret runtime config only; MCP auto-injects
+-- real credentials during manifest → BatchPlan expansion.
+local SECRET_KEY_SUBSTRINGS = {
+  "KEY", "SECRET", "TOKEN", "PASSWORD", "PWD",
+  "AUTH", "CRED", "APIKEY",
+}
+
+local function looks_secret(key)
+  local u = key:upper()
+  for _, needle in ipairs(SECRET_KEY_SUBSTRINGS) do
+    if u:find(needle, 1, true) then
+      return needle
+    end
+  end
+  return nil
+end
+
 local function normalize_env(e)
   if e == nil then return {} end
   assert_type(e, "table", "env")
   local out = {}
   for k, v in pairs(e) do
     assert_type(k, "string", "env key")
-    if is_secret(v) then
-      out[k] = { __secret = v.__secret }
-    elseif type(v) == "string" then
+    local hit = looks_secret(k)
+    if hit then
+      error(("profile: env[%s] has a secret-shaped key (contains %q); "
+        .. "Profile.env is for non-secret runtime config only. "
+        .. "Credentials are MCP-owned and auto-injected during profile apply.")
+        :format(k, hit), 3)
+    end
+    if type(v) == "string" then
       out[k] = v
     elseif type(v) == "number" or type(v) == "boolean" then
       out[k] = tostring(v)
     else
-      error(("profile: env[%s] must be string|number|boolean|vdsl.secret, got %s")
+      error(("profile: env[%s] must be string|number|boolean, got %s")
         :format(k, type(v)), 3)
     end
   end
@@ -369,6 +413,42 @@ local function normalize_sync(s)
   }
 end
 
+-- Normalize the optional `staging` block. Currently exposes only
+-- `staging.push`: eager pod → B2 one-shot upload routes executed
+-- during Phase 5 of apply. Distinct from `sync.push` (marker-only,
+-- consumed by later generation flows); see
+-- docs/profile-and-orchestration.md §2.3 / §2.5.
+--
+-- Validation:
+--   - src must be an absolute pod path ("/workspace/...").
+--   - dst must use the b2:// scheme. {pod_id} placeholder allowed
+--     (resolved during MCP expansion).
+-- Reuse normalize_sync_routes for arrow / table shape, then enforce
+-- the scheme constraints here so the error path stays local.
+local function validate_staging_push_route(r, p)
+  if not r.src:match("^/") then
+    error(("profile: %s.src must be an absolute pod path (got %q)"):format(p, r.src), 3)
+  end
+  if r.src:find("..", 1, true) then
+    error(("profile: %s.src must not contain '..' segments (got %q)"):format(p, r.src), 3)
+  end
+  if not r.dst:match("^b2://") then
+    error(("profile: %s.dst must be a b2:// URI (got %q)"):format(p, r.dst), 3)
+  end
+end
+
+local function normalize_staging(s)
+  if s == nil then
+    return { push = json.array({}) }
+  end
+  assert_type(s, "table", "staging")
+  local push = normalize_sync_routes(s.push, "staging.push")
+  for i, r in ipairs(push) do
+    validate_staging_push_route(r, "staging.push[" .. i .. "]")
+  end
+  return { push = (#push == 0) and json.array({}) or push }
+end
+
 local function normalize_hooks(h)
   if h == nil then return {} end
   assert_type(h, "table", "hooks")
@@ -416,6 +496,7 @@ function M.new(spec)
     models        = normalize_models(spec.models),
     env           = normalize_env(spec.env),
     sync          = normalize_sync(spec.sync),
+    staging       = normalize_staging(spec.staging),
     hooks         = normalize_hooks(spec.hooks),
   }
 

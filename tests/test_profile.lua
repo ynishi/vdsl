@@ -211,22 +211,98 @@ T.err("profile: rejects malformed sync route string", function()
 end)
 
 -- ============================================================
--- 5. Secret sentinel round-trips through env
+-- 4.1 staging.push (eager pod → B2 one-shot)
 -- ============================================================
-local p4 = vdsl.profile {
-  name = "secrets",
-  comfyui = { ref = "master" },
-  env = { HF_TOKEN = vdsl.secret("HF_TOKEN"), DEBUG = "1" },
-}
-T.eq("env.HF_TOKEN preserved as secret", p4.env.HF_TOKEN.__secret, "HF_TOKEN")
-T.eq("env.DEBUG literal", p4.env.DEBUG, "1")
+-- staging is distinct from sync.push (marker-only). Validates
+-- absolute pod path src + b2:// dst at normalize time. See
+-- docs/profile-and-orchestration.md §2.3 / §2.5.
 
--- The rendered manifest must mark secrets explicitly so vdsl_profile_apply
--- can resolve them on the orchestrator side without baking values into the
--- manifest itself.
+local p_stg = vdsl.profile {
+  name = "staging-ok",
+  comfyui = { ref = "master" },
+  staging = {
+    push = {
+      "/workspace/staging/ → b2://run-pod-ZQyB/staging/{pod_id}/",
+      { src = "/workspace/staging/a.safetensors",
+        dst = "b2://run-pod-ZQyB/models/checkpoints/a.safetensors" },
+    },
+  },
+}
+T.eq("staging.push[1].src dir",  p_stg.staging.push[1].src, "/workspace/staging/")
+T.eq("staging.push[1].dst b2",   p_stg.staging.push[1].dst, "b2://run-pod-ZQyB/staging/{pod_id}/")
+T.eq("staging.push[2].src file", p_stg.staging.push[2].src, "/workspace/staging/a.safetensors")
+
+-- empty/absent staging => push stays an empty array in canonical JSON
+local p_stg_none = vdsl.profile { name = "no-stg", comfyui = { ref = "master" } }
+T.eq("staging defaults push [] len", #p_stg_none.staging.push, 0)
+
+T.err("staging.push rejects relative src", function()
+  vdsl.profile {
+    name = "bad", comfyui = { ref = "master" },
+    staging = { push = { "staging/a → b2://b/o" } },
+  }
+end)
+
+T.err("staging.push rejects '..' in src", function()
+  vdsl.profile {
+    name = "bad", comfyui = { ref = "master" },
+    staging = { push = { "/workspace/../etc/a → b2://b/o" } },
+  }
+end)
+
+T.err("staging.push rejects non-b2 dst", function()
+  vdsl.profile {
+    name = "bad", comfyui = { ref = "master" },
+    staging = { push = { "/workspace/staging/ → https://example.com/a" } },
+  }
+end)
+
+T.err("staging.push rejects malformed string", function()
+  vdsl.profile {
+    name = "bad", comfyui = { ref = "master" },
+    staging = { push = { "no arrow here" } },
+  }
+end)
+
+-- ============================================================
+-- 5. env rejects anything secret-shaped
+-- ============================================================
+-- Profile.env is non-secret runtime config only. MCP owns secret
+-- injection during manifest → BatchPlan expansion, so user profiles
+-- that try to declare credentials (via vdsl.secret or secret-shaped
+-- keys) must fail loudly at normalization.
+
+T.ok("vdsl.secret has been removed from the public API", vdsl.secret == nil)
+
+T.err("env rejects raw secret-shaped key (TOKEN)", function()
+  vdsl.profile {
+    name = "bad-env-token",
+    comfyui = { ref = "master" },
+    env = { HF_TOKEN = "literal" },
+  }
+end)
+
+T.err("env rejects raw secret-shaped key (KEY, case-insensitive)", function()
+  vdsl.profile {
+    name = "bad-env-key",
+    comfyui = { ref = "master" },
+    env = { my_api_key = "literal" },
+  }
+end)
+
+-- Non-secret env is still fine.
+local p4 = vdsl.profile {
+  name = "env-ok",
+  comfyui = { ref = "master" },
+  env = { DEBUG = "1", COMFYUI_PORT = 8188 },
+}
+T.eq("env.DEBUG literal", p4.env.DEBUG, "1")
+T.eq("env.COMFYUI_PORT stringified", p4.env.COMFYUI_PORT, "8188")
+
+-- The rendered manifest never contains a __secret sentinel from user
+-- input: MCP inserts them at expansion time for its own steps only.
 local mj = p4:manifest_json(false)
-T.ok("manifest marks secret via __secret key", mj:find('"__secret":"HF_TOKEN"', 1, true) ~= nil)
-T.ok("manifest does NOT include a raw HF_TOKEN value", mj:find("HF_TOKEN_VALUE", 1, true) == nil)
+T.ok("user manifest carries no __secret sentinel", mj:find("__secret", 1, true) == nil)
 
 -- ============================================================
 -- 6. hash_source is deterministic across runs + key orders

@@ -74,18 +74,27 @@ end
 
 --- Construct a declarative ComfyUI-on-pod Profile.
 -- See lua/vdsl/runtime/profile.lua for schema and usage.
+--
+-- Two standing prohibitions (identical shape, different angle):
+--   1. SECRETS: user profiles MUST NOT declare credentials. MCP
+--      injects them per-step at apply time. (§2.4)
+--   2. NO DSL-BYPASS: pod-side file operations MUST be expressible
+--      in this DSL and go through `profile_service.expand_phases`.
+--      Ad-hoc `mv` / `cp` / `rclone` / `wget` via `vdsl_exec` is
+--      forbidden; if you hit a gap, extend the DSL, don't work
+--      around it. (§2.5)
+-- See docs/profile-and-orchestration.md §2.4 and §2.5, and the
+-- project CLAUDE.md "Profile Secret Policy" / "Profile Evaluation
+-- Bypass" sections for the cross-cutting rules.
 function M.profile(spec)
   local Profile = require("vdsl.runtime.profile")
   return Profile.new(spec)
 end
 
---- Reference an env-var secret inside a profile.
--- @param name string env var name resolved on the pod at apply time.
-function M.secret(name)
-  local Profile = require("vdsl.runtime.profile")
-  return Profile.secret(name)
-end
-
+-- vdsl.secret() removed (2026-04-21).
+-- Credentials are MCP-owned and injected into expanded batch steps
+-- at profile_apply time; user profiles must not reference them.
+-- See lua/vdsl/runtime/profile.lua top docstring for rationale.
 
 -- vdsl.lora() removed.
 -- LoRA is a World resource, not a DSL entity constructor.

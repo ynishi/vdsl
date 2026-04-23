@@ -31,7 +31,9 @@ generic primitive `vdsl_batch_tools`.
 ## 2. Profile DSL
 
 Defined in `lua/vdsl/runtime/profile.lua`. Exposed on the public API
-as `vdsl.profile { ... }` and `vdsl.secret("NAME")`.
+as `vdsl.profile { ... }`. User profiles never declare secrets; MCP
+auto-injects credentials into the batch steps that need them (see
+§2.4).
 
 ### 2.1 Sections
 
@@ -43,8 +45,9 @@ as `vdsl.profile { ... }` and `vdsl.secret("NAME")`.
 | `system`       | no       | `apt[]`                                           |
 | `custom_nodes` | no       | `[{repo, ref, pip, post, name}]`                  |
 | `models`       | no       | `[{kind, dst, src}]` — B2 / file only (see §2.2)  |
-| `env`          | no       | `{KEY = string | vdsl.secret("NAME")}`            |
+| `env`          | no       | `{KEY = string\|number\|boolean}` — non-secret only |
 | `sync`         | no       | `{pull = [route], push = [route]}`                |
+| `staging`      | no       | `{push = [route]}` — eager pod→B2 one-shot (§2.3) |
 | `hooks`        | no       | `{pre_install, post_install, pre_start, post_start}` |
 
 ### 2.2 Model kinds
@@ -149,32 +152,128 @@ schemes but pinned by direction:
   flush, scheduled sync), driven by whatever component reads the
   marker file. Apply is for setup; push uploads belong to downstream
   output flows, not bootstrapping.
+- `staging.push` runs **eagerly at apply time**, reversed direction
+  from `sync.pull`: each route emits a blocking `rclone copyto`
+  from the pod absolute path to a `b2://` URI. Distinct from
+  `sync.push` on purpose — `staging` is one-shot pre-apply
+  upload (HF → pod → B2 staging, ad-hoc artifact capture), while
+  `sync.push` is the runtime marker channel. Routes shape:
+  `"/workspace/<path> → b2://<bucket>/<path>"`. `{pod_id}` is
+  substituted in the B2 path. B2 credentials are emitted as
+  `__secret:VDSL_B2_KEY_ID` / `VDSL_B2_KEY` sentinels (§2.4.1).
+  All three families share one parallel group (`5_sync_routes`,
+  fanout 4); step IDs are `5_sync_pull_N`, `5_sync_push_N`, and
+  `5_staging_push_N` respectively.
 
-### 2.4 Secret sentinel
+### 2.4 Secrets are MCP-owned (no sentinel in user Profiles)
 
-`vdsl.secret("HF_TOKEN")` returns `{ __secret = "HF_TOKEN" }`. The
-manifest records the reference, not the value. Resolution happens in
-the orchestrator at apply time from the caller's environment (e.g.
-RunPod pod-level secrets, a local `.env`, or explicit CLI flags).
+**User Profiles never declare secrets. Full stop.** The reason
+`vdsl_profile_apply` is an MCP tool — rather than a pure pod-side
+script — is exactly so that MCP can look at what a Profile asks for,
+figure out which credentials each expanded phase needs, and inject
+them itself. Re-deriving that mapping in every user Profile would be
+noise at best, a leak vector at worst.
 
-**Scope: runtime env for processes that run on the pod.** Use this
-for things a custom node or ComfyUI itself reads at runtime — for
-example a HuggingFace token that a node uses to fetch an auxiliary
-model at first use.
+Ownership split:
 
-**Not for B2 credentials.** B2 auth is resolved MCP-side. When any
-`models[]` entry has a `b2://…` src, the apply handler reads
-`VDSL_B2_KEY_ID` / `VDSL_B2_KEY` from the orchestrator's own env
-(`.mcp.json`) and pre-populates them in the secrets map (fail-fast
-with `MissingSecrets` if unset). Phase 7 then emits an exec step per
-model that `export`s them into that single rclone process only —
-they never touch `~/.bashrc` or any persistent file on the pod. A
-Profile that references `b2://…` sources does NOT need — and must
-not include — an `env = { B2_APPLICATION_KEY = vdsl.secret(...) }`
-block. Injecting B2 keys into `manifest.env` would leak them into
-every phase's shell and violates the dumb-pod principle (§1).
+| Layer       | Knows                                                | Responsibility                                                      |
+|-------------|------------------------------------------------------|---------------------------------------------------------------------|
+| User Profile| Target stack (models, custom_nodes, env non-secrets) | Declares *what* should end up on the pod                            |
+| MCP (Rust)  | Which subprocess needs which credential, and where those credentials live (`.mcp.json` env) | Emits per-step secret sentinels during expansion and resolves them at dispatch |
+| Pod         | Nothing about secrets                                | Receives already-resolved values on a single subprocess's env only  |
 
-### 2.5 Canonical manifest
+What user Profiles **may** put in `env`:
+- Non-secret runtime config (e.g. `DEBUG = "1"`, `COMFYUI_PORT = 8188`)
+
+What user Profiles **may not** put in `env`:
+- Any value via a sentinel helper. `vdsl.secret()` was removed on
+  2026-04-21 — there is no helper left, because there is no
+  legitimate sentinel to emit from the Lua side.
+- Any key containing `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PWD`,
+  `AUTH`, `CRED`, or `APIKEY` (case-insensitive). Rejected at
+  `profile.lua:normalize_env` and (defense in depth) at the
+  vdsl-mcp profile_service manifest validator.
+- Any pattern that routes credentials off the orchestrator host
+  (sourcing `.env`, `grep`-ing keys, inlining values into
+  `vdsl_exec` / `vdsl_task_run` commands). If MCP's injection path
+  doesn't already cover a credential, the fix is to extend MCP —
+  never to bypass it from Lua / shell / task.
+
+### 2.4.1 How MCP injects secrets at apply time
+
+For every expanded BatchPlan step that calls a credential-gated
+subprocess, `profile_service` writes sentinels of the form
+`{"__secret": "NAME"}` (or the flattened shorthand `__secret:NAME`
+inside string values) into that step's `env` only. The current
+coverage:
+
+| Phase / step family          | Sentinel(s) emitted                           | Subprocess that consumes them |
+|------------------------------|-----------------------------------------------|-------------------------------|
+| Phase 7 model pull (b2://)   | `VDSL_B2_KEY_ID`, `VDSL_B2_KEY`               | rclone copyto                 |
+| Phase 5 sync pull (b2://→)   | `VDSL_B2_KEY_ID`, `VDSL_B2_KEY`               | rclone copyto                 |
+| Phase 5 staging push (→b2://)| `VDSL_B2_KEY_ID`, `VDSL_B2_KEY`               | rclone copyto                 |
+| (future) other schemes       | added here when a new scheme is introduced    | corresponding subprocess      |
+
+The sentinel is the only form that appears in `dry_run` output. On a
+real run, `batch_service` replaces each sentinel with
+`std::env::var("NAME")` immediately before launching the subprocess
+and passes the resolved value through the process env of that single
+subprocess — never to `~/.bashrc`, never to a file on the pod, never
+to other steps. If any required env var is unset in the MCP process,
+the plan fails fast with `MissingSecrets` before the first step
+runs.
+
+### 2.4.2 Why not HuggingFace / Civitai tokens?
+
+Out of scope. Stage into B2 beforehand. See §6 Non-scope. This keeps
+the secret matrix small (B2 keys only) and avoids a long tail of
+per-site auth schemes inside the orchestrator.
+
+### 2.5 No DSL-bypass in apply / setup flow
+
+**Any pod-side file operation that is part of apply / setup /
+staging goes through Profile DSL evaluation.** The Profile
+(`normalize` in `lua/vdsl/runtime/profile.lua`) and MCP
+(`expand_phases` in `vdsl-mcp .../profile_service.rs`) together
+define the complete surface of what apply can do on the pod.
+Everything else — hand-rolled `mv` / `cp` / `ln` via `vdsl_exec`,
+direct `rclone` / `wget` / `curl` calls, piggybacking on
+`vdsl_storage_push` by first moving files into its 8 fixed
+`MODEL_DIRS` — is prohibited.
+
+Structurally this is the same rule as §2.4 (secrets), seen from a
+different angle. §2.4 says "do not control pod from outside the
+MCP injection path". §2.5 says "do not control pod file layout
+from outside the DSL evaluation path". Both forbid side channels.
+
+If you hit a concrete operation the DSL cannot express, that is
+the signal to extend the DSL — not to reach around it. Concrete
+examples and their correct routes:
+
+| Symptom                                                        | Do not                                                   | Do                                                                 |
+|----------------------------------------------------------------|----------------------------------------------------------|--------------------------------------------------------------------|
+| Need to push `/workspace/staging/*` (non-`MODEL_DIRS` path) to B2 | `vdsl_exec mv` into `models/<category>/` then `storage_push` | Extend Profile with a `staging.push` / eager `sync.push` primitive and re-expand Phase 5 |
+| Need to pull from a source scheme not yet supported (e.g. `hf://`) | `vdsl_exec wget` / `curl`                                | Extend `models[].src` scheme table in both DSL (`profile.lua`) and MCP (`profile_service.rs`) |
+| Model destination dir not in the kind→subdir preset            | `mv` to the nearest preset dir                           | Use `subdir = "relative/path"` escape hatch, or extend `KIND_TO_DIR` |
+| Need credentials on the pod other than B2                      | Source `.env` / inline into `vdsl_exec`                  | Extend MCP-side secret injection in `profile_service` and document in §2.4.1 |
+
+Hard rule for AI / Human agents alike: **when a "temporary
+workaround" shell sequence suggests itself, stop for 30 seconds and
+re-read §2.4 + §2.5 before proceeding.** If the workaround still
+feels necessary, that is a design question, not an execution
+question — escalate to Human. `scripts/check_profile_ops.sh`
+greps staged diffs and the recent git log for the forbidden
+patterns and fails loud. Run it before every commit that touches
+pod orchestration.
+
+Accident log: 2026-04-21 (see root `.claude/CLAUDE.md` / "Profile
+Evaluation Bypass"): an `/workspace/staging/ → B2` push was
+attempted by hand-rolling 8 `mv` calls into `MODEL_DIRS` to reuse
+`vdsl_storage_push`. Caught at interrupt. Correct fix: add a
+`staging.push` primitive to the Profile DSL and let Phase 5
+eager-execute it.
+
+### 2.6 Canonical manifest
 
 `profile:manifest_json(pretty)` emits JSON with sorted keys and
 stable array order. `profile:hash_source()` returns the compact form
@@ -345,23 +444,34 @@ loading; `/object_info` does not respond cleanly until the full
 registry is populated. A green `/object_info` is the contract for
 "ready to accept workflows".
 
-### 4.4 Secret resolution
+### 4.4 Secret resolution (MCP-internal only)
 
-Secrets referenced in `env` are resolved by the orchestrator before
-the plan is sent to `batch_tools`:
+Sentinels in step `env` are never user-supplied — `profile_service`
+emits them during manifest → BatchPlan expansion (see §2.4.1). They
+are resolved by `batch_service` right before dispatching each step:
 
-1. `env[KEY] = { __secret = "NAME" }` → look up `NAME` from the
-   orchestrator's environment (caller's secrets store / shell env).
-2. If unset, `profile_apply` fails fast before any step runs.
-3. Resolved values are inlined into the relevant `pod_exec_script`
-   step's env. They never appear in `dry_run` output.
+1. For each key whose value matches `{"__secret": "NAME"}` or the
+   flat form `"__secret:NAME"`, call `std::env::var("NAME")` on the
+   MCP process env.
+2. Any missing variable aborts the plan with `MissingSecrets` before
+   the first step runs. No partial execution.
+3. Resolved values land on the launched subprocess's env and nowhere
+   else — not in `~/.bashrc`, not in a file on the pod, not in
+   another step's env.
+4. `dry_run` shows the sentinel form verbatim. Real runs never echo
+   resolved values back through tool output.
+
+User-facing manifests that somehow carry a `__secret` key
+(hand-written JSON, third-party loader, etc.) are rejected at
+profile_service parse time — defense in depth for the Lua-side
+validator in `profile.lua:normalize_env`.
 
 ## 5. Cross-repo responsibilities
 
 | Repo       | Owns                                                                 |
 |------------|----------------------------------------------------------------------|
-| `vdsl`     | Profile DSL, manifest schema, canonical JSON, `vdsl.secret` sentinel |
-| `vdsl-mcp` | `batch_tools` primitive, `profile_apply` composer, tool dispatch, secret resolution, restart/health helpers |
+| `vdsl`     | Profile DSL, manifest schema, canonical JSON, env-secret rejection at normalize (Lua-side enforcement) |
+| `vdsl-mcp` | `batch_tools` primitive, `profile_apply` composer, tool dispatch, **per-step `__secret` sentinel emission + resolution**, env-secret rejection at manifest parse (Rust-side enforcement), restart/health helpers |
 
 Schema changes in `profile.lua` require a matching update in
 `vdsl-mcp`'s manifest parser. Follow the cross-repo rule from the
@@ -378,9 +488,18 @@ RunPod pytorch base (`runpod/pytorch:*-devel`) is:
 2. `vdsl_profile_apply(manifest = "projects/profiles/<name>.lua", pod_id = ...)`.
 3. `vdsl_connect(pod_id = ..., wait = true)` once the health check passes.
 
-| Profile                                  | Stack                                      | Notes                                          |
-|------------------------------------------|--------------------------------------------|------------------------------------------------|
-| `projects/profiles/zimage_turbo.lua`     | ComfyUI + ZImagePowerNodes + Z-Image Turbo | Mirrors `scripts/infra/setup_comfyui_pod.sh`'s Python-3.12-on-pytorch approach; weights pulled from B2. |
+| Profile                                      | Stack                                                              | Notes                                          |
+|----------------------------------------------|--------------------------------------------------------------------|------------------------------------------------|
+| `projects/profiles/zimage_turbo.lua`         | ComfyUI + ZImagePowerNodes + Z-Image Turbo                          | Mirrors `scripts/infra/setup_comfyui_pod.sh`'s Python-3.12-on-pytorch approach; weights pulled from B2. |
+| `projects/profiles/sdxl_illustrious.lua`     | ComfyUI + Impact Pack + Illustrious SDXL checkpoint                 | Base SDXL pod (txt2img + FaceDetailer only). No LoRA/ControlNet/IPAdapter — those layer on via `pipeline_*`. |
+| `projects/profiles/pipeline_i2i_sdxl.lua`    | Superset of `sdxl_illustrious` + ControlNet aux + IPAdapter + KJNodes + post-processing | Complex I2I flows: img2img / ControlNet (canny/depth/openpose) / IPAdapter vit-h / 4x-UltraSharp / SAM inpaint. See `projects/profiles/pipeline_i2i_sdxl_staging.md` for the B2 staging map (upstream → `b2://run-pod-ZQyB/...`). |
+
+`pipeline_*` profiles are idempotent supersets: applying
+`pipeline_i2i_sdxl.lua` on a pod that already has `sdxl_illustrious`
+only adds the extra custom_nodes and model weights. Missing B2 objects
+do **not** fail `profile_apply` (models[] is skip-if-exists per file);
+the downstream workflow referencing that model fails at runtime
+instead. Consult the paired `*_staging.md` before apply.
 
 Profiles replace the legacy `scripts/infra/setup_comfyui_pod.sh` manual
 path: that script still works for the pre-seeded network volume case,
