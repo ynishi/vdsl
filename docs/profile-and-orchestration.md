@@ -353,19 +353,54 @@ vdsl_profile_apply({
 })
 ```
 
+### 4.0 Dispatch mode: polling (default) vs synchronous dry-run
+
+- `dry_run=true` runs synchronously and returns the compiled
+  `BatchPlan` + per-step dry results. No SSH hits the pod.
+- `dry_run=false` runs **asynchronously**. The call returns
+  `{ task_id, pod_id, status: "running", poll_with }` in under a
+  second; the dispatch continues in a background `tokio::spawn`.
+  The caller polls with:
+  ```
+  vdsl_profile_apply_status({ task_id })
+    → { status ∈ "running" | "ok" | "failed",
+        total_steps, completed_steps,
+        current_step,
+        results[], started_at_ms, finished_at_ms, error? }
+  ```
+  Polling is cheap (in-process memory, no SSH). Terminal entries
+  persist in the registry for the MCP process lifetime — late
+  pollers still read the full result.
+
+Why the split: a cold-pod apply takes 15-20 min (venv + pip +
+custom-node installs + multi-GB model pull). Single-call
+synchronous dispatch previously blocked the MCP tool for that
+entire window, with no progress signal. A dropped SSH channel
+would leave the caller stuck for the per-step 3600s timeout even
+after the pod-side work finished (see `.claude/CLAUDE.md`
+2026-04-22 "45 min stuck" accident record). The polling pattern
+decouples the MCP call from the long-running work and lets the
+caller verify liveness at any time.
+
+Heavy phases internally dispatch via `exec_bg` (see §4.3), which
+launches the step via `runpod-cli task run` (detached) and polls
+`task status` from MCP instead of holding a single SSH channel
+open for the duration. SSH is only held briefly per launch +
+per-status-poll.
+
 ### 4.1 Phase → step mapping (default order, `seq` mode)
 
 | # | Phase                    | Tool(s)                   | Notes                                    |
 |---|--------------------------|---------------------------|------------------------------------------|
-| 1 | `system.apt`             | `pod_exec_script`         | single shell line                        |
-| 2 | `comfyui` install        | `pod_exec_script`         | clone / checkout / venv / requirements.txt |
-| 3 | `python.deps`            | `pod_exec_script`         | venv pip install                         |
-| 4 | `custom_nodes`           | `pod_exec_script` × N     | one step per node (sequential); `pip=true` installs `requirements.txt` with torch-family filter (see §4.3) |
-| 5 | `sync.pull` / `sync.push`| `pod_exec_script` × N     | pull: blocking `rclone copyto`; push: append marker to `/workspace/.vdsl/push_routes.jsonl` (no upload) |
+| 1 | `system.apt`             | `exec_bg`                 | single shell line                        |
+| 2 | `comfyui` install        | `exec_bg`                 | clone / checkout / venv / requirements.txt |
+| 3 | `python.deps`            | `exec_bg`                 | venv pip install                         |
+| 4 | `custom_nodes`           | `exec_bg` × N             | one step per node (parallel ≤4); `pip=true` installs `requirements.txt` with torch-family filter (see §4.3) |
+| 5 | `sync.pull` / `staging.push` / `sync.push` | `exec_bg` × N (pull / staging) + `exec` (marker) | pull / staging: rclone copyto via detached task; marker: single `printf >> /workspace/.vdsl/push_routes.jsonl` (fast; stays on `exec`) |
 | 6 | *(unused)*               | —                         | Phase 6 intentionally vacant; marker-based push has no poll step |
-| 7 | `models`                 | `pod_exec_script` (`rclone` or `cp`) | `b2://` → rclone copyto (serial), `file://` → cp |
-| 8 | `hooks.post_install`     | `pod_exec_script`         | if present                               |
-| 9 | ComfyUI restart          | `pod_exec_script` (polling) | kill + nohup relaunch in one script    |
+| 7 | `models`                 | `exec_bg` (`rclone` or `cp`) | `b2://` → rclone copyto (serial), `file://` → cp |
+| 8 | `hooks.post_install`     | `exec_bg`                 | if present                               |
+| 9 | ComfyUI restart          | `exec_bg` (polling)       | kill port listener + nohup relaunch + wait for HTTP |
 |10 | health check             | `comfy_api` GET `/object_info` | confirms node graph loaded fully    |
 
 `sync.push` upload itself is **not triggered** during apply; only the
@@ -374,40 +409,49 @@ marker file is written. Upload belongs to downstream output flows
 
 ### 4.2 ComfyUI restart
 
-Phase 9 is a single blocking `exec` step (not a task_run+task_status pair).
-The restart script itself polls `curl` on `localhost:<port>` until the
-server answers, so when the exec returns, the health check in Phase 10
-can fire without a race. The script:
+Phase 9 is a single `exec_bg` step (detached via `task_run`, polled
+via `task_status`). The restart script itself polls `curl` on
+`localhost:<port>` until the server answers, so when the task
+reaches `done` state, the health check in Phase 10 can fire
+without a race. The script:
 
-1. `pgrep -f '[.]venv/bin/python main\.py' | grep -vx "$$" | grep -vx "$PPID" | xargs -r kill || true`
-2. waits for the port to free via `ss -ltnH "sport = :<port>" | grep -q LISTEN` (bounded 30s)
-3. `mkdir -p /workspace/.vdsl` — ensure log destination exists
-4. `nohup .venv/bin/python main.py <args> > /workspace/.vdsl/comfyui.log 2>&1 &`
-5. polls `http://localhost:<port>/` until it responds (bounded 180s)
+1. Ensure `ss` (iproute2) is installed — auto-installs if missing.
+2. Discover the actual port-8188 listener via `ss -ltnpH "sport = :$PORT"`, extract PIDs, send SIGTERM (excluding `$$` and `$PPID`).
+3. Wait up to 30 s for the port to free, escalating to SIGKILL at the 10 s mark.
+4. `mkdir -p /workspace/.vdsl` — ensure log destination exists.
+5. `nohup .venv/bin/python main.py <args> > /workspace/.vdsl/comfyui.log 2>&1 &`.
+6. Poll `http://localhost:<port>/` until it responds (bounded 180 s).
 
-Three subtle bugs had to be fixed in this script before it was stable;
-the current form encodes all three fixes:
+Four subtle bugs had to be fixed in this script before it was stable;
+the current form encodes all of them:
 
-- **pkill regex shape.** The pattern matches the actual cwd-relative
-  `.venv/bin/python main.py --listen ...` argv. An earlier form
-  `[p]ython .*ComfyUI/main\.py` targeted a path that is never present
-  in argv (cwd is already `/workspace/ComfyUI`), so the old server
-  survived the restart and the new bind failed with `EADDRINUSE`.
-- **Self-exclude from pkill.** The script text itself contains the
-  literal `.venv/bin/python main.py` on the nohup launch line, and the
-  wrapper shell's cmdline is `bash -c <script_text>`. `pgrep -f`
-  therefore matches the wrapper too and `xargs kill` TERMs it
-  mid-run. Filtering out `$$` (this shell) and `$PPID` (ssh-level
-  parent) leaves only the actual ComfyUI process in the kill list.
-- **Port-free wait via `ss`.** The RunPod base image does not ship
-  `lsof`. An earlier `while lsof -i:$PORT; do ...; done` hit
-  "command not found" on the first iteration and the loop exited
-  immediately — no wait happened, and nohup raced the kernel's
-  socket teardown. `ss` ships in iproute2 and is present on the
-  base image.
+- **Listener-PID kill over argv pattern.** Pod images often start
+  ComfyUI via system python (`/usr/bin/python3.12 main.py ...`, e.g.
+  the `runpod-slim` auto-start). An earlier pattern
+  `pgrep -f '[.]venv/bin/python main\.py'` missed that entirely —
+  the pre-installed ComfyUI survived the restart, grabbed the port
+  first, and apply silently pointed at a models-less instance. The
+  current form resolves the listener by querying `ss -ltnp` on
+  `$PORT`, so any process actually bound to the port is killed
+  regardless of how it was launched.
+- **Self-exclude from kill.** `$$` (this shell) and `$PPID` (ssh-level
+  parent) are filtered out so the script cannot accidentally kill its
+  own ancestors.
+- **Port-free wait via `ss`, with auto-install.** The RunPod base
+  images we target do not all ship `lsof` or `ss` out of the box.
+  Earlier loops using `lsof` short-circuited with "command not
+  found"; newer pods without iproute2 triggered the same silent skip
+  for `ss`. The script now checks `command -v ss` and runs
+  `apt-get install -y iproute2` idempotently before the kill loop.
+- **SIGKILL escalation.** If a listener ignores SIGTERM (wedged
+  install supervisor, runaway venv), the SIGKILL fallback at the
+  10 s mark ensures the port frees within the 30 s deadline.
 
-The polling mode of `pod_exec_script` is what makes this a single
-step rather than a kill-then-sleep-then-check chain.
+Running the restart as `exec_bg` means the long 180 s HTTP-ready
+wait happens on the pod, in a detached task, while MCP only issues
+short polling SSH calls. This matters even more post-restart: the
+ComfyUI boot fetches ComfyUI-Manager registries and can briefly
+wedge SSH on a slow network.
 
 ### 4.3 Custom-node pip with torch-family filter
 

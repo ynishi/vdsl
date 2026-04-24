@@ -165,8 +165,13 @@ end
 -- ============================================================
 
 local function normalize_comfyui(c)
+  -- `comfyui` is OPTIONAL. A profile with no `comfyui` block means
+  -- "don't install/restart/health-check ComfyUI on this apply" — useful
+  -- for volume evacuation / staging-only / archival profiles where the
+  -- pod does not even need a ComfyUI install. Phase 2 / 9 / 10 are
+  -- skipped by `profile_service::expand_phases` when this returns nil.
   if c == nil then
-    error("profile: comfyui section is required", 3)
+    return nil
   end
   assert_type(c, "table", "comfyui")
   local ref = c.ref

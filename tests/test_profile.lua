@@ -14,9 +14,13 @@ T.err("profile: rejects missing name", function()
   vdsl.profile { comfyui = { ref = "master" } }
 end)
 
-T.err("profile: rejects missing comfyui", function()
-  vdsl.profile { name = "x" }
-end)
+-- `comfyui` is OPTIONAL since 2026-04-24 — evacuation / staging-only /
+-- archival profiles legitimately want no ComfyUI install, restart, or
+-- health check. Profile accepts an absent `comfyui` block and emits an
+-- `Option::None` on the wire; `profile_service.expand_phases` skips
+-- Phase 2 / 9 / 10 in that case.
+local p_nocomfy = vdsl.profile { name = "x" }
+T.ok("profile: comfyui optional — nil accepted", p_nocomfy.comfyui == nil)
 
 -- ============================================================
 -- 2. Minimal profile: defaults fill in
