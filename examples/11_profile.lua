@@ -61,12 +61,9 @@ local profile = vdsl.profile {
       src  = "b2://vdsl-assets/loras/fantasy_style.safetensors" },
   },
 
-  env = {
-    -- Secrets are resolved by vdsl_profile_apply from the orchestrator's
-    -- environment at apply time. They are never inlined into the manifest.
-    B2_APPLICATION_KEY    = vdsl.secret("B2_APPLICATION_KEY"),
-    B2_APPLICATION_KEY_ID = vdsl.secret("B2_APPLICATION_KEY_ID"),
-  },
+  -- B2 credentials are MCP-owned and auto-injected into b2:// pull /
+  -- push steps at profile_apply time — no `env` block needed here.
+  -- (vdsl.secret() was removed 2026-04-21; see lua/vdsl/init.lua.)
 
   sync = {
     -- Hot cache: bulk-mirror a B2 prefix onto the pod before individual
@@ -86,7 +83,10 @@ local profile = vdsl.profile {
   },
 }
 
--- For inspection / CI: print the canonical manifest.
+-- For inspection / CI: print the canonical manifest in standalone CLI mode.
+-- vdsl.profile_emit writes to $VDSL_PROFILE_OUT when invoked via
+-- vdsl-mcp's vdsl_profile_apply, otherwise no-op.
+vdsl.profile_emit(profile)
 print(profile:manifest_json(true))
 
 -- Example: write to disk so a human can eyeball the manifest.
