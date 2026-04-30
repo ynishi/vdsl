@@ -213,10 +213,15 @@ local function normalize_python(p)
     assert_type(d, "string", "python.deps[" .. i .. "]")
     out[i] = d
   end
-  return {
+  local result = {
     version = version,
     deps    = #out == 0 and json.array({}) or out,
   }
+  if p.force_reinstall ~= nil then
+    assert_type(p.force_reinstall, "boolean", "python.force_reinstall")
+    result.force_reinstall = p.force_reinstall
+  end
+  return result
 end
 
 local function normalize_system(s)

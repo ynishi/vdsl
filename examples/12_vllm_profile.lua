@@ -14,6 +14,11 @@ local profile = vdsl.profile {
 
   python = {
     deps = { "vllm==0.18.1", "huggingface_hub" },
+    -- vllm 0.18.1 requires torch 2.10 / flashinfer; the runpod/pytorch
+    -- base image ships torch 2.4. Without --force-reinstall, pip's
+    -- resolver keeps the existing wheel and the import path breaks.
+    -- See workspace/qwen3.6-vllm-runpod-setup.md §Step 3.
+    force_reinstall = true,
   },
 
   system = {
