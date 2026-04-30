@@ -478,4 +478,25 @@ function M.emit(name, result, render_opts)
   return true
 end
 
+--- Emit profile manifest via env-specified output path.
+-- Mirrors vdsl.emit pattern (env-driven, no-op when unset = standalone CLI).
+-- Writes canonical JSON (manifest_json(false)) to $VDSL_PROFILE_OUT.
+-- Used by vdsl-mcp `vdsl_profile_apply` when receiving Profile.lua direct.
+-- @param profile Profile (schema "vdsl.profile/1") from vdsl.profile{...}
+-- @return boolean true if written, false if skipped (env unset)
+function M.profile_emit(profile)
+  if type(profile) ~= "table" or profile.schema ~= "vdsl.profile/1" then
+    error("profile_emit: expected Profile object, got " .. type(profile), 2)
+  end
+  local out = os.getenv("VDSL_PROFILE_OUT")
+  if not out then return false end
+  local fh, err = io.open(out, "w")
+  if not fh then
+    error("profile_emit: cannot open " .. out .. ": " .. tostring(err), 2)
+  end
+  fh:write(profile:manifest_json(false))
+  fh:close()
+  return true
+end
+
 return M
