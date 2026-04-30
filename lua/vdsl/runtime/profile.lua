@@ -117,9 +117,10 @@ local KIND_TO_DIR = {
   detector_segm   = "ultralytics/segm",
 }
 
---- Allowed src schemes for models and sync routes.
--- Only B2 (object storage) and file:// (already on the pod) are supported.
--- Stage external assets into B2 before referencing them from a Profile.
+--- Allowed src schemes for ComfyUI `models[]` entries.
+-- Only B2 (object storage) and file:// (already on the pod) are supported
+-- for ComfyUI models. `hf://` belongs in `llm_models[]` (raw LLM weight
+-- staging for non-ComfyUI workloads); models[] rejects it explicitly.
 local ALLOWED_SCHEMES = {
   ["b2://"]   = true,
   ["file://"] = true,
@@ -305,10 +306,21 @@ local function normalize_models(list)
       kind = "custom"
     end
 
+    if m.base_dir ~= nil then
+      error(("profile: %s.base_dir is no longer supported on models[]; "
+        .. "for non-ComfyUI weight staging use llm_models[] instead")
+        :format(path), 3)
+    end
+
     assert_type(m.dst, "string", path .. ".dst")
     assert_type(m.src, "string", path .. ".src")
 
     local scheme = scheme_of(m.src)
+    if scheme == "hf://" then
+      error(("profile: %s.src uses hf:// — ComfyUI models[] supports b2:// or file:// only; "
+        .. "use llm_models[] for HuggingFace weight pulls")
+        :format(path), 3)
+    end
     if not scheme or not ALLOWED_SCHEMES[scheme] then
       error(("profile: %s.src has unsupported scheme (%s); allowed: b2:// file://")
         :format(path, tostring(scheme)), 3)
@@ -472,6 +484,133 @@ local function normalize_hooks(h)
   return out
 end
 
+--- Raw LLM weight staging for non-ComfyUI workloads (vLLM / Ollama / etc).
+-- Independent of `models[]` — `models[]` is ComfyUI-only.
+-- Currently only `hf://<org>/<repo>` is supported. `dst_dir` must be an
+-- absolute pod path; the repo is materialized there via `huggingface-cli
+-- download --local-dir`.
+local function normalize_llm_models(list)
+  if list == nil then return json.array({}) end
+  assert_type(list, "table", "llm_models")
+  local out = {}
+  local seen = {}
+  for i, m in ipairs(list) do
+    local path = "llm_models[" .. i .. "]"
+    assert_type(m, "table", path)
+    assert_type(m.src, "string", path .. ".src")
+    assert_type(m.dst_dir, "string", path .. ".dst_dir")
+    optional_type(m.revision, "string", path .. ".revision")
+
+    local scheme = scheme_of(m.src)
+    if scheme ~= "hf://" then
+      error(("profile: %s.src must use hf:// scheme (got %s)")
+        :format(path, tostring(scheme)), 3)
+    end
+    if not m.dst_dir:match("^/") or m.dst_dir:find("%.%.") then
+      error(("profile: %s.dst_dir %q must be an absolute pod path without '..'")
+        :format(path, m.dst_dir), 3)
+    end
+    if seen[m.dst_dir] then
+      error(("profile: duplicate llm_models dst_dir %s (see %s)"):format(m.dst_dir, seen[m.dst_dir]), 3)
+    end
+    seen[m.dst_dir] = path
+
+    out[i] = {
+      src      = m.src,
+      dst_dir  = m.dst_dir,
+      revision = m.revision,
+    }
+  end
+  return #out == 0 and json.array({}) or out
+end
+
+-- Closed set of supported service platforms. Mirrors the Rust
+-- `ServicePlatform` enum in vdsl-mcp; new platforms require a code
+-- change in both repos (intentional — no free-form cmd escape hatch).
+local SERVICE_KIND_NORMALIZERS = {
+  vllm = function(s, path)
+    assert_type(s.model, "string", path .. ".model")
+    assert_type(s.port, "number", path .. ".port")
+    optional_type(s.dtype, "string", path .. ".dtype")
+    optional_type(s.tensor_parallel_size, "number", path .. ".tensor_parallel_size")
+    local extra = s.extra_args or {}
+    assert_type(extra, "table", path .. ".extra_args")
+    for j, a in ipairs(extra) do
+      assert_type(a, "string", path .. ".extra_args[" .. j .. "]")
+    end
+    return {
+      kind                  = "vllm",
+      model                 = s.model,
+      port                  = s.port,
+      dtype                 = s.dtype,
+      tensor_parallel_size  = s.tensor_parallel_size,
+      extra_args            = #extra == 0 and json.array({}) or extra,
+    }
+  end,
+  ollama = function(s, path)
+    assert_type(s.port, "number", path .. ".port")
+    local models = s.models or {}
+    assert_type(models, "table", path .. ".models")
+    for j, mname in ipairs(models) do
+      assert_type(mname, "string", path .. ".models[" .. j .. "]")
+    end
+    return {
+      kind   = "ollama",
+      port   = s.port,
+      models = #models == 0 and json.array({}) or models,
+    }
+  end,
+}
+
+local function normalize_services(list)
+  if list == nil then return json.array({}) end
+  assert_type(list, "table", "services")
+  local out = {}
+  local seen_names = {}
+  for i, s in ipairs(list) do
+    local path = "services[" .. i .. "]"
+    assert_type(s, "table", path)
+    assert_type(s.name, "string", path .. ".name")
+    if s.cmd ~= nil then
+      error(("profile: %s.cmd is no longer supported; "
+        .. "use kind=\"vllm\"|\"ollama\" with platform-specific fields")
+        :format(path), 3)
+    end
+    if seen_names[s.name] then
+      error(("profile: duplicate services[].name %q"):format(s.name), 3)
+    end
+    seen_names[s.name] = true
+
+    assert_type(s.kind, "string", path .. ".kind")
+    local norm = SERVICE_KIND_NORMALIZERS[s.kind]
+    if not norm then
+      error(("profile: %s.kind %q unsupported; allowed: vllm, ollama")
+        :format(path, s.kind), 3)
+    end
+    local platform = norm(s, path)
+
+    local ready_check = nil
+    if s.ready_check then
+      assert_type(s.ready_check, "table", path .. ".ready_check")
+      assert_type(s.ready_check.http, "string", path .. ".ready_check.http")
+      optional_type(s.ready_check.timeout_sec, "number", path .. ".ready_check.timeout_sec")
+      ready_check = {
+        http        = s.ready_check.http,
+        timeout_sec = s.ready_check.timeout_sec,
+      }
+    end
+
+    -- Flatten platform fields into the service entry so the JSON shape
+    -- matches Rust `ServiceConfig { name, #[serde(flatten)] platform, ready_check }`.
+    local entry = { name = s.name, ready_check = ready_check }
+    for k, v in pairs(platform) do
+      entry[k] = v
+    end
+    out[i] = entry
+  end
+  return #out == 0 and json.array({}) or out
+end
+
 -- ============================================================
 -- Public constructor
 -- ============================================================
@@ -499,10 +638,12 @@ function M.new(spec)
     system        = normalize_system(spec.system),
     custom_nodes  = normalize_custom_nodes(spec.custom_nodes),
     models        = normalize_models(spec.models),
+    llm_models    = normalize_llm_models(spec.llm_models),
     env           = normalize_env(spec.env),
     sync          = normalize_sync(spec.sync),
     staging       = normalize_staging(spec.staging),
     hooks         = normalize_hooks(spec.hooks),
+    services      = normalize_services(spec.services),
   }
 
   return setmetatable(p, PROFILE_MT)

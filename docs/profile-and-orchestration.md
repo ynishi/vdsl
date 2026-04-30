@@ -40,20 +40,26 @@ auto-injects credentials into the batch steps that need them (see
 | Section        | Required | Purpose                                           |
 |----------------|----------|---------------------------------------------------|
 | `name`         | yes      | Profile identifier                                |
-| `comfyui`      | yes      | `repo`, `ref`, `port`, `args`                     |
+| `comfyui`      | no       | `repo`, `ref`, `port`, `args` (Optional since v1.1) |
 | `python`       | no       | `version`, `deps[]`                               |
 | `system`       | no       | `apt[]`                                           |
 | `custom_nodes` | no       | `[{repo, ref, pip, post, name}]`                  |
-| `models`       | no       | `[{kind, dst, src}]` — B2 / file only (see §2.2)  |
-| `env`          | no       | `{KEY = string\|number\|boolean}` — non-secret only |
+| `models`       | no       | `[{kind, dst, src}]` — ComfyUI weights, B2 / file |
+| `llm_models`   | no       | `[{src, dst_dir, revision}]` — raw LLM weights (HF) |
+| `services`     | no       | `[{name, kind, ...}]` — typed daemons (vllm/ollama) |
+| `env`          | no       | `{KEY = string|number|boolean}` — non-secret only |
 | `sync`         | no       | `{pull = [route], push = [route]}`                |
 | `staging`      | no       | `{push = [route]}` — eager pod→B2 one-shot (§2.3) |
 | `hooks`        | no       | `{pre_install, post_install, pre_start, post_start}` |
 
 ### 2.2 Model kinds
 
-Each model entry targets a subdirectory under `ComfyUI/models/`. There
-are two ways to specify it:
+`models[]` is **ComfyUI-only** — entries always stage under
+`/workspace/ComfyUI/models/<subdir>/<dst>`. For non-ComfyUI workloads
+(vLLM / Ollama / TEI) use `llm_models[]` (§2.7) which targets an
+arbitrary `dst_dir` and pulls full HuggingFace repos.
+
+There are two ways to specify the subdirectory:
 
 - `kind = "<preset>"` — pick a preset from the table below.
 - `subdir = "<relative/path>"` — escape hatch for directories not in
@@ -104,12 +110,15 @@ as an immediate escape and file an issue to promote it.
 
 #### `models[].src`
 
-Supports two schemes:
+Supports two schemes (ComfyUI weights only):
 
 - `b2://bucket/path` — Backblaze B2 object storage (fetched via `rclone`)
 - `file:///absolute/path` — local file already on the pod filesystem (fetched via `cp`)
 
-HuggingFace, Civitai, and direct HTTP(S) are **out of scope** here.
+For HuggingFace pulls (LLM weights), use `llm_models[]` (§2.7) — `models[]`
+explicitly rejects `hf://` to keep ComfyUI's canonical layout untainted.
+
+Civitai and direct HTTP(S) are **out of scope** here.
 Stage assets into B2 before referencing them from a Profile. Rationale:
 
 - B2 is content-addressed for our pipeline; no separate sha256
@@ -210,6 +219,7 @@ coverage:
 | Phase / step family          | Sentinel(s) emitted                           | Subprocess that consumes them |
 |------------------------------|-----------------------------------------------|-------------------------------|
 | Phase 7 model pull (b2://)   | `VDSL_B2_KEY_ID`, `VDSL_B2_KEY`               | rclone copyto                 |
+| Phase 7b llm_model (hf://)   | `HF_TOKEN` (optional)                         | huggingface-cli download      |
 | Phase 5 sync pull (b2://→)   | `VDSL_B2_KEY_ID`, `VDSL_B2_KEY`               | rclone copyto                 |
 | Phase 5 staging push (→b2://)| `VDSL_B2_KEY_ID`, `VDSL_B2_KEY`               | rclone copyto                 |
 | (future) other schemes       | added here when a new scheme is introduced    | corresponding subprocess      |
@@ -279,6 +289,69 @@ eager-execute it.
 stable array order. `profile:hash_source()` returns the compact form
 used for identity hashing. Integrity of the manifest is the client's
 job; the pod never recomputes it.
+
+### 2.7 LLM models (`llm_models[]`)
+
+Raw weight staging for non-ComfyUI workloads (vLLM / Ollama / TEI etc.).
+Independent of `models[]` so ComfyUI's `subdir` / `kind` semantics don't
+bleed into LLM staging.
+
+```lua
+llm_models = {
+  { src = "hf://meta-llama/Llama-3-8B-Instruct",
+    dst_dir = "/root/models/llama-3" },
+  { src = "hf://Qwen/Qwen3-7B",
+    dst_dir = "/root/models/qwen-3",
+    revision = "v1.2.0" },  -- optional git ref / branch / tag
+}
+```
+
+- `src` must use `hf://<org>/<repo>` (only scheme currently supported).
+- `dst_dir` must be an absolute pod path. The full HF repo is materialized
+  there via `huggingface-cli download --local-dir`.
+- `revision` (Optional) passes through to `--revision`.
+- `HF_TOKEN` is injected from the MCP process env when set; missing token
+  is fine for public repos (private repos fail at `huggingface-cli` time).
+
+### 2.8 Services (typed daemons)
+
+Adjacent daemon services launched in Phase 11. Closed enum design:
+each entry selects a `kind` (currently `"vllm"` or `"ollama"`); the
+launch shell command is generated from the typed fields. **No
+free-form `cmd` string** — adding a new platform requires extending
+both `vdsl-mcp::ServicePlatform` and `profile.lua::SERVICE_KIND_NORMALIZERS`.
+
+```lua
+services = {
+  {
+    name                 = "vllm",
+    kind                 = "vllm",
+    model                = "/root/models/qwen-awq",  -- HF repo id or local path
+    port                 = 8188,
+    dtype                = "auto",                   -- optional
+    tensor_parallel_size = 1,                        -- optional
+    extra_args           = { "--max-model-len 16384" },  -- escape hatch
+    ready_check = {
+      http        = "http://localhost:8188/v1/models",
+      timeout_sec = 600,
+    },
+  },
+  {
+    name   = "ollama",
+    kind   = "ollama",
+    port   = 11434,
+    models = { "llama3:8b" },  -- pre-pull list (info only; pull is operator's job)
+  },
+}
+```
+
+- Launch step runs `nohup <cmd> > /workspace/.vdsl/service_<name>.log 2>&1 &`,
+  then `sleep 1 && kill -0 $pid` to detect immediate-exit failures
+  (binary missing, arg parse error).
+- `ready_check` (Optional) performs a bounded HTTP poll on `http` URL
+  until 200 OK or `timeout_sec` (default 300).
+- Service `name` must be unique within the profile (collides on log
+  file path otherwise).
 
 ## 3. `vdsl_batch_tools` (primitive)
 
@@ -402,6 +475,8 @@ per-status-poll.
 | 8 | `hooks.post_install`     | `exec_bg`                 | if present                               |
 | 9 | ComfyUI restart          | `exec_bg` (polling)       | kill port listener + nohup relaunch + wait for HTTP |
 |10 | health check             | `comfy_api` GET `/object_info` | confirms node graph loaded fully    |
+|7b | llm_models pull          | `exec_bg` (serial)        | huggingface-cli download (HF_TOKEN if set) |
+|11 | services                 | `exec_bg` (detached) + poll | launches `services[]` from typed platform + polls `ready_check.http` |
 
 `sync.push` upload itself is **not triggered** during apply; only the
 marker file is written. Upload belongs to downstream output flows
