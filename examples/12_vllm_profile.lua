@@ -48,8 +48,13 @@ local profile = vdsl.profile {
       dtype                = "auto",
       tensor_parallel_size = 1,
       extra_args = {
-        "--max-model-len 16384",
-        "--gpu-memory-utilization 0.92",
+        -- 4090 has 22.5 GiB usable. Model alone is 19.05 GiB, plus
+        -- Qwen3-Next's Triton/FLA GDN prefill kernel workspace.
+        -- gpu_memory_utilization 0.92 → 0.97 to claw back ~1 GiB,
+        -- kv_cache_dtype fp8 to halve KV cache footprint.
+        "--max-model-len 8192",
+        "--gpu-memory-utilization 0.97",
+        "--kv-cache-dtype fp8",
         "--enforce-eager",
         "--enable-auto-tool-choice",
         "--tool-call-parser qwen3_xml",
