@@ -1,23 +1,31 @@
 -- examples/12_vllm_profile.lua
--- vLLM profile for Qwen 3.6-27B on RunPod.
+-- vLLM profile example: Qwen3.6-27B-AWQ-INT4 on RunPod (4090 reference).
 --
--- Sets up a vLLM OpenAI-compatible server. Weights are pulled from
--- HuggingFace into /root/models/qwen-awq via llm_models[], and the
--- daemon is launched via services[] using the typed `vllm` platform.
+-- This is a *reference* Profile, kept self-contained for readability.
+-- For production / parameterized use (GPU class, model_len, port,
+-- model_repo override), use a Profile factory under projects/ instead
+-- of editing this file.
+--
+-- Pipeline:
+--   - llm_models[] pulls weights from HuggingFace (Phase 7b)
+--   - services[] launches the vllm daemon and waits on ready_check
+--     (Phase 11). No free-form cmd string; `kind = "vllm"` selects
+--     the typed platform schema.
+--
+-- Cold construction: ~10 min on RunPod 4090 ephemeral
+--   (HF pull ~1 min + vllm install ~5 min + cold start ~3 min).
+-- Reference: workspace/qwen3.6-vllm-runpod-setup.md
 
 local vdsl = require("vdsl")
 
 local profile = vdsl.profile {
   name = "qwen3.6-vllm",
 
-  -- No comfyui block needed — non-ComfyUI workload.
-
   python = {
     deps = { "vllm==0.18.1", "huggingface_hub" },
     -- vllm 0.18.1 requires torch 2.10 / flashinfer; the runpod/pytorch
     -- base image ships torch 2.4. Without --force-reinstall, pip's
     -- resolver keeps the existing wheel and the import path breaks.
-    -- See workspace/qwen3.6-vllm-runpod-setup.md §Step 3.
     force_reinstall = true,
   },
 
@@ -29,7 +37,7 @@ local profile = vdsl.profile {
     FLASHINFER_DISABLE_VERSION_CHECK = "1",
   },
 
-  -- Raw LLM weight staging (non-ComfyUI). hf:// only.
+  -- Raw LLM weight staging (non-ComfyUI). hf:// scheme only.
   llm_models = {
     {
       src     = "hf://cyankiwi/Qwen3.6-27B-AWQ-INT4",
@@ -48,10 +56,10 @@ local profile = vdsl.profile {
       dtype                = "auto",
       tensor_parallel_size = 1,
       extra_args = {
-        -- 4090 has 22.5 GiB usable. Model alone is 19.05 GiB, plus
-        -- Qwen3-Next's Triton/FLA GDN prefill kernel workspace.
-        -- gpu_memory_utilization 0.92 → 0.97 to claw back ~1 GiB,
-        -- kv_cache_dtype fp8 to halve KV cache footprint.
+        -- 4090 22.5 GiB usable. max_model_len 16384 OOMs because vllm
+        -- 0.18.1's Qwen3-Next Triton/FLA GDN prefill workspace
+        -- pushes KV cache memory negative. 8192 + fp8 KV fits.
+        -- For A40 (48 GiB) bump to 16384 with utilization 0.92.
         "--max-model-len 8192",
         "--gpu-memory-utilization 0.97",
         "--kv-cache-dtype fp8",

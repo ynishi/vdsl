@@ -345,4 +345,195 @@ T.ok("manifest file parses as JSON", ok)
 T.eq("manifest round-trips name", decoded.name, "kinds")
 T.eq("manifest round-trips schema tag", decoded.schema, "vdsl.profile/1")
 
+-- ============================================================
+-- 8. llm_models[] — raw LLM weight staging (non-ComfyUI, hf:// only)
+-- ============================================================
+-- llm_models targets arbitrary dst_dir (not folder_paths.py). It is
+-- independent from models[] and only accepts the hf:// scheme.
+
+local p_llm = vdsl.profile {
+  name = "llm-ok",
+  llm_models = {
+    { src = "hf://Qwen/Qwen3-7B",          dst_dir = "/root/models/qwen-3" },
+    { src = "hf://cyankiwi/Qwen3.6-AWQ",   dst_dir = "/root/models/qwen-awq",
+      revision = "main" },
+  },
+}
+T.eq("llm_models[1].src",         p_llm.llm_models[1].src,      "hf://Qwen/Qwen3-7B")
+T.eq("llm_models[1].dst_dir",     p_llm.llm_models[1].dst_dir,  "/root/models/qwen-3")
+T.eq("llm_models[2].revision",    p_llm.llm_models[2].revision, "main")
+
+-- absent / empty → JSON array (not object) so Rust deserializes Vec<>
+local p_llm_none = vdsl.profile { name = "llm-none" }
+T.eq("llm_models defaults to empty array len", #p_llm_none.llm_models, 0)
+
+T.err("llm_models rejects non-hf:// scheme (b2)", function()
+  vdsl.profile {
+    name = "bad",
+    llm_models = { { src = "b2://v/x", dst_dir = "/root/models/x" } },
+  }
+end)
+
+T.err("llm_models rejects non-hf:// scheme (https)", function()
+  vdsl.profile {
+    name = "bad",
+    llm_models = { { src = "https://example.com/x", dst_dir = "/root/models/x" } },
+  }
+end)
+
+T.err("llm_models rejects relative dst_dir", function()
+  vdsl.profile {
+    name = "bad",
+    llm_models = { { src = "hf://a/b", dst_dir = "models/x" } },
+  }
+end)
+
+T.err("llm_models rejects dst_dir with '..'", function()
+  vdsl.profile {
+    name = "bad",
+    llm_models = { { src = "hf://a/b", dst_dir = "/root/../etc/passwd" } },
+  }
+end)
+
+T.err("llm_models rejects duplicate dst_dir", function()
+  vdsl.profile {
+    name = "bad",
+    llm_models = {
+      { src = "hf://a/b", dst_dir = "/root/models/x" },
+      { src = "hf://c/d", dst_dir = "/root/models/x" },
+    },
+  }
+end)
+
+-- models[] explicitly rejects hf:// (must use llm_models[]) — already
+-- covered in §3, restated here as the boundary contract reminder.
+
+-- ============================================================
+-- 9. services[] — typed daemon launch (vllm / ollama)
+-- ============================================================
+-- Closed-set platforms via `kind`. cmd is removed; platform fields are
+-- flattened into the service entry to match Rust `ServiceConfig`
+-- (#[serde(flatten)] platform).
+
+local p_svc = vdsl.profile {
+  name = "svc-ok",
+  llm_models = { { src = "hf://Qwen/Qwen3-7B", dst_dir = "/root/models/qwen" } },
+  services = {
+    {
+      name                 = "vllm",
+      kind                 = "vllm",
+      model                = "/root/models/qwen",
+      port                 = 8188,
+      dtype                = "auto",
+      tensor_parallel_size = 1,
+      extra_args = {
+        "--max-model-len 8192",
+        "--gpu-memory-utilization 0.97",
+      },
+      ready_check = {
+        http        = "http://localhost:8188/v1/models",
+        timeout_sec = 600,
+      },
+    },
+  },
+}
+T.eq("services[1].name",            p_svc.services[1].name,        "vllm")
+T.eq("services[1].kind flattened",  p_svc.services[1].kind,        "vllm")
+T.eq("services[1].model flattened", p_svc.services[1].model,       "/root/models/qwen")
+T.eq("services[1].port flattened",  p_svc.services[1].port,        8188)
+T.eq("services[1].extra_args[1]",   p_svc.services[1].extra_args[1], "--max-model-len 8192")
+T.eq("services[1].ready_check.http",
+  p_svc.services[1].ready_check.http, "http://localhost:8188/v1/models")
+T.eq("services[1].ready_check.timeout_sec",
+  p_svc.services[1].ready_check.timeout_sec, 600)
+
+-- absent / empty → JSON array
+local p_svc_none = vdsl.profile { name = "svc-none" }
+T.eq("services defaults to empty array len", #p_svc_none.services, 0)
+
+-- ollama kind
+local p_oll = vdsl.profile {
+  name = "ollama-ok",
+  services = {
+    { name = "ollama", kind = "ollama", port = 11434, models = { "llama3.2", "qwen2.5" } },
+  },
+}
+T.eq("services[ollama].kind",      p_oll.services[1].kind,       "ollama")
+T.eq("services[ollama].models[1]", p_oll.services[1].models[1],  "llama3.2")
+
+T.err("services rejects unsupported kind", function()
+  vdsl.profile {
+    name = "bad",
+    services = { { name = "x", kind = "tgi", model = "/m", port = 8000 } },
+  }
+end)
+
+T.err("services rejects free-form cmd (legacy escape hatch removed)", function()
+  vdsl.profile {
+    name = "bad",
+    services = { { name = "x", cmd = "vllm serve /m --port 8000" } },
+  }
+end)
+
+T.err("services rejects duplicate name", function()
+  vdsl.profile {
+    name = "bad",
+    services = {
+      { name = "vllm", kind = "vllm", model = "/m", port = 8188 },
+      { name = "vllm", kind = "vllm", model = "/m", port = 8189 },
+    },
+  }
+end)
+
+T.err("services.vllm rejects missing model", function()
+  vdsl.profile {
+    name = "bad",
+    services = { { name = "vllm", kind = "vllm", port = 8188 } },
+  }
+end)
+
+T.err("services.vllm rejects non-string extra_args entry", function()
+  vdsl.profile {
+    name = "bad",
+    services = {
+      { name = "vllm", kind = "vllm", model = "/m", port = 8188,
+        extra_args = { "--ok", 123 } },
+    },
+  }
+end)
+
+T.err("services.ready_check rejects missing http", function()
+  vdsl.profile {
+    name = "bad",
+    services = {
+      { name = "vllm", kind = "vllm", model = "/m", port = 8188,
+        ready_check = { timeout_sec = 60 } },
+    },
+  }
+end)
+
+-- ============================================================
+-- 10. manifest round-trips llm_models + services
+-- ============================================================
+local p_round = vdsl.profile {
+  name = "round",
+  llm_models = { { src = "hf://Qwen/Qwen3-7B", dst_dir = "/root/models/qwen" } },
+  services = {
+    { name = "vllm", kind = "vllm", model = "/root/models/qwen", port = 8188,
+      extra_args = { "--enforce-eager" },
+      ready_check = { http = "http://localhost:8188/v1/models" } },
+  },
+}
+local mj_round = p_round:manifest_json(false)
+local ok_r, dec = pcall(json.decode, mj_round)
+T.ok("manifest with services parses as JSON", ok_r)
+T.eq("manifest llm_models[1].src",  dec.llm_models[1].src,     "hf://Qwen/Qwen3-7B")
+T.eq("manifest services[1].name",   dec.services[1].name,      "vllm")
+T.eq("manifest services[1].kind",   dec.services[1].kind,      "vllm")
+T.eq("manifest services[1].port",   dec.services[1].port,      8188)
+T.eq("manifest services[1].extra_args[1]",
+  dec.services[1].extra_args[1], "--enforce-eager")
+T.eq("manifest services[1].ready_check.http",
+  dec.services[1].ready_check.http, "http://localhost:8188/v1/models")
+
 T.summary()

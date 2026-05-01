@@ -353,6 +353,24 @@ services = {
 - Service `name` must be unique within the profile (collides on log
   file path otherwise).
 
+#### vLLM `extra_args` — recommended presets per GPU class
+
+`extra_args` is intentionally a free-form escape hatch (a list of
+strings appended to `vllm serve`). For Qwen3.6-27B-AWQ-INT4 + vllm
+0.18.1 the validated combinations are:
+
+| GPU             | `--max-model-len` | `--gpu-memory-utilization` | `--kv-cache-dtype` | Notes                                                                  |
+|-----------------|-------------------|----------------------------|--------------------|------------------------------------------------------------------------|
+| 4090 (22.5 GiB) | `8192`            | `0.97`                     | `fp8`              | `16384` OOMs because Qwen3-Next FLA prefill workspace pushes KV negative. |
+| A40 (48 GiB)    | `16384`           | `0.92`                     | `fp8`              | agent-block bench scenario minimum (input ~6K + output ~2K + headroom).   |
+| A100 40GB       | `16384`           | `0.90`                     | `fp8`              | Cudagraph fits, kept `--enforce-eager` for parity / repro stability.      |
+
+The reference `examples/12_vllm_profile.lua` ships with the 4090
+preset for portability; the parameterized factory at
+`projects/coding-orch/qwen_vllm.lua` exposes a `gpu` switch that picks
+one of the three presets. Source experiment log:
+`workspace/qwen3.6-vllm-runpod-setup.md`.
+
 ## 3. `vdsl_batch_tools` (primitive)
 
 A generic composition tool in `vdsl-mcp`. Not Profile-specific — use
@@ -612,6 +630,34 @@ RunPod pytorch base (`runpod/pytorch:*-devel`) is:
 | `projects/profiles/zimage_turbo.lua`         | ComfyUI + ZImagePowerNodes + Z-Image Turbo                          | Mirrors `scripts/infra/setup_comfyui_pod.sh`'s Python-3.12-on-pytorch approach; weights pulled from B2. |
 | `projects/profiles/sdxl_illustrious.lua`     | ComfyUI + Impact Pack + Illustrious SDXL checkpoint                 | Base SDXL pod (txt2img + FaceDetailer only). No LoRA/ControlNet/IPAdapter — those layer on via `pipeline_*`. |
 | `projects/profiles/pipeline_i2i_sdxl.lua`    | Superset of `sdxl_illustrious` + ControlNet aux + IPAdapter + KJNodes + post-processing | Complex I2I flows: img2img / ControlNet (canny/depth/openpose) / IPAdapter vit-h / 4x-UltraSharp / SAM inpaint. See `projects/profiles/pipeline_i2i_sdxl_staging.md` for the B2 staging map (upstream → `b2://run-pod-ZQyB/...`). |
+| `projects/coding-orch/qwen_vllm.lua`         | vLLM serve + Qwen3.6-27B-AWQ-INT4 (no ComfyUI)                      | **Factory** (returns `function(opts) -> Profile`). Parameterized for GPU class (`"4090"` / `"A40"` / `"A100-40"`), `max_model_len`, `port`, `model_repo`. Consumed by the `qwen-setup-agent` (agent-profiles) for the coding-orch backend. README + preset table in `projects/coding-orch/README.md`. |
+
+#### Factory profiles (parameterized)
+
+For workloads that vary along a small set of axes (GPU class, port,
+model id), prefer a **factory** — a Lua module that returns a function
+producing a Profile — over a static file. The pattern:
+
+```lua
+-- projects/coding-orch/qwen_vllm.lua
+return function(opts)
+  -- merge opts with defaults / GPU presets, then:
+  return vdsl.profile { ... }
+end
+```
+
+```lua
+-- caller (apply-time entrypoint)
+local make = require("projects.coding-orch.qwen_vllm")
+local profile = make({ gpu = "A40", port = 8188 })
+vdsl.profile_emit(profile)
+return profile
+```
+
+Static files (`projects/profiles/*.lua`) remain the right choice when
+there's only one shape. Use a factory when an out-of-band caller (an
+agent, a CLI, another orchestrator) needs to pick parameters at
+dispatch time without editing the file.
 
 `pipeline_*` profiles are idempotent supersets: applying
 `pipeline_i2i_sdxl.lua` on a pod that already has `sdxl_illustrious`
