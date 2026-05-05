@@ -621,6 +621,13 @@ Reusable profiles live under `projects/profiles/` (gitignored user area;
 check in per-project). The expected flow for a new ephemeral pod on the
 RunPod pytorch base (`runpod/pytorch:*-devel`) is:
 
+0. `vdsl_profile_init(name = "<name>")` to scaffold a new profile file
+   at `<root>/profiles/<name>.lua` with the standing-prohibitions header
+   (SECRETS / NO DSL-BYPASS) pre-baked. Edit in place to declare
+   ComfyUI ref / Python deps / custom nodes / models / sync routes.
+   (The legacy `scripts/new_profile.sh` is the bash equivalent and is
+   kept as a fallback for users without an MCP client; see its header
+   for the deprecation note.)
 1. `vdsl_pod_create` with the pytorch image + desired GPU.
 2. `vdsl_profile_apply(manifest = "projects/profiles/<name>.lua", pod_id = ...)`.
 3. `vdsl_connect(pod_id = ..., wait = true)` once the health check passes.

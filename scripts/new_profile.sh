@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # scripts/new_profile.sh NAME [OUT_PATH]
 #
+# DEPRECATED (2026-05-06): use the MCP tool `vdsl_profile_init` instead.
+#   vdsl_profile_init(name = "<name>")
+#     -> <root>/profiles/<name>.lua
+#   Root resolution + scaffold body are identical (Rust port of this
+#   bash heredoc, see vdsl-mcp domain/profile.rs::scaffold_profile).
+#   This bash script is kept as a fallback for users without an MCP
+#   client and will be removed in a future release.
+#
 # Scaffold a new Profile DSL file with the standing prohibition
 # header pre-baked. Use this instead of copy-pasting from an existing
 # profile so the "no secrets / no DSL-bypass" comments cannot be
