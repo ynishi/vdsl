@@ -113,5 +113,5 @@ build = {
     ["vdsl.util.matcher"]                    = "lua/vdsl/util/matcher.lua",
     ["vdsl.util.shell"]                      = "lua/vdsl/util/shell.lua",
   },
-  copy_directories = { "examples", "tests" },
+  copy_directories = { "examples", "tests", "docs" },
 }
