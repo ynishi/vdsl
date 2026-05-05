@@ -6,51 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-### Added
-
-- **Profile DSL** (`vdsl.profile` / `vdsl.secret`) — declarative
-  ComfyUI-on-pod configuration: ComfyUI ref, Python deps, custom nodes,
-  models, env secrets, B2 sync routes, install hooks. Produces a
-  canonical JSON manifest (sorted keys, stable array order). Apply is
-  orchestrator-driven: the MCP tool `vdsl_profile_apply` expands the
-  manifest into a sequence of existing MCP tool calls on the client
-  side; the pod runs no convergence script of its own. Source schemes
-  for models and sync routes are limited to `b2://` (Backblaze B2) and
-  `file://` — stage external assets into B2 before referencing them.
-  Model `kind` covers all 20+ ComfyUI `folder_paths.py` directories
-  (checkpoints, loras, vae, diffusion_models, text_encoders,
-  audio_encoders, model_patches, photomaker, …); `subdir = "<path>"`
-  is the escape hatch for custom directories.
-- **`docs/profile-and-orchestration.md`** — design doc covering the
-  Profile DSL, the generic `vdsl_batch_tools` primitive, the
-  `vdsl_profile_apply` composer (phase → step mapping, secret
-  resolution, ComfyUI restart + `/object_info` health check), cross-repo
-  responsibilities, and explicit non-scope.
-- **`examples/11_profile.lua`** — worked B2-only fantasy-preset profile.
-- **`tests/test_profile.lua`** — DSL validation and hash-stability tests.
-
-## [0.4.0] - 2026-04-12
+## [0.3.0] - 2026-05-06
 
 ### Highlights
 
-Version aligned with vdsl-mcp 0.4.0. Z-Image compiler, catalog desc() API,
-Runtime Store abstraction, and directory restructure.
+Profile DSL — declarative ComfyUI / vLLM / Ollama on-pod configuration with
+canonical JSON manifest, MCP-driven apply, B2-first sync, and explicit
+secret / bypass prohibitions.
 
 ### Added
 
-- **Z-Image compiler** — Turbo/Base variant support with ZSamplerTurbo2 (`e4c832d`, `29ee3a7`)
-- **`desc()` API** — natural language descriptions for Trait and all catalogs (`f37cb54`)
-- **3-location file sync engine** — Local/Pod/Cloud (`9b8dd1f`)
-- **Trait conflict detection** and resolution strategies (`bef1628`)
-- **Fantasy cinema showcase** and RunPod setup script (`e41690e`)
-- **Cross-language hash verification tests** (`11f467a`)
+- **Profile DSL** (`vdsl.profile`) — declarative pod configuration:
+  ComfyUI ref (optional), Python deps, custom nodes, models, env, B2 sync
+  routes, install hooks, restart phase. Produces a canonical JSON
+  manifest (sorted keys, stable array order, SHA256 = `profile_hash`).
+  Apply is orchestrator-driven: `vdsl_profile_apply` expands the manifest
+  into a sequence of MCP tool calls on the client side; the pod runs no
+  convergence script of its own. (`f612760`)
+- **Model `kind` extended** to cover all 20+ ComfyUI `folder_paths.py`
+  directories (checkpoints, loras, vae, diffusion_models, text_encoders,
+  audio_encoders, model_patches, photomaker, …). `subdir = "<path>"` is
+  the escape hatch for custom directories. Custom-node `pip` filter
+  documented. (`62790d9`)
+- **`staging.push` primitive** — push host files to pod staging with
+  fail-fast secret rejection. Secret-shaped keys
+  (KEY/SECRET/TOKEN/PASSWORD/PWD/AUTH/CRED/APIKEY) are rejected at
+  `normalize_env`; bypass via shell / task_run is prohibited at the
+  policy level. (`f921846`)
+- **ComfyUI optional** — Profile no longer requires `comfyui {}` block;
+  pure-Python / vLLM / Ollama-only profiles are valid. Polling-style
+  `vdsl_profile_apply` documented (background spawn + `task_id` poll;
+  SSH 45min stuck mitigation via `exec_bg`). (`51cd595`)
+- **`vdsl.profile_emit`** — env-driven manifest output for MCP (replaces
+  `vdsl.secret`-style host-side secret embedding). (`8256d2e`)
+- **`llm_models[]` + typed services** (`services.vllm`, `services.ollama`)
+  — first-class LLM serving alongside ComfyUI image generation.
+  (`170c416`)
+- **`python.force_reinstall`** pass-through to pip (`6cc00df`)
+- **vLLM Profile factory** — `vdsl.profile.vllm{...}` preset builder
+  with GPU presets doc (`docs/vllm-gpu-presets.md`). 4090 22.5 GiB args
+  tuned for `examples/12_vllm`. (`952b185`, `056e433`)
+- **`docs/profile-and-orchestration.md`** — design doc: Profile DSL,
+  `vdsl_batch_tools` primitive, `vdsl_profile_apply` composer
+  (phase → step mapping, secret resolution, ComfyUI restart +
+  `/object_info` health check), cross-repo responsibilities, explicit
+  non-scope. Sync routes are URL-scheme (B2/file only, pod ↔ B2 path).
+  Restart script uses `ss-wait` + `pkill` self-exclude. (`5a33151`,
+  `3b2743e`)
+- **Examples** — `examples/11_profile.lua` (fantasy-preset),
+  `examples/12_vllm.lua` (vLLM serving). (`4559f73`)
+- **Tests** — `tests/test_profile.lua` (DSL validation, hash stability,
+  factory shape).
 
 ### Changed
 
-- **Runtime Store abstraction** — replaced Sync engine (`ee25c04`)
-- **Sync separated into Domain and Runtime layers** (`bb1dbc5`)
-- **`util/png` moved to `runtime/png_default`** — enforce Runtime boundary (`1db134b`)
-- **Directory restructure** — workspaces to projects, output as symlink (`6c616c7`)
+- `examples/11_profile.lua` — drop residual `vdsl.secret` calls, switch
+  to `profile_emit` (`4559f73`).
 
 ## [0.2.0] - 2025-12-15
 
