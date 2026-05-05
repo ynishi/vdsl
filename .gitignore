@@ -27,3 +27,6 @@ scripts/.inline_history/
 # User-specific
 projects/
 assets/
+
+.worktrees
+.claude
