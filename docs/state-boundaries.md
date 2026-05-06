@@ -107,6 +107,27 @@ sweeps/_runs/
 
 PNG は ComfyUI 正常進化の延長で「画像 1 枚 = self-contained」を保つ。Profile / Project は state を持つので Layer 1 (ProjectDir) と Layer 2 (Hub) の組で初めて再生可能。
 
+## 5.5 vdsl 本体 (Lua module) の所在
+
+vdsl の Lua module 本体は luarocks の標準 install tree に住む (`~/.luarocks/share/lua/5.x/vdsl/`)。`~/.vdsl/` は user state hub 専用で、本体コードは置かない。これにより本体 upgrade と user state の lifecycle が独立する (`luarocks install vdsl` を打っても `~/.vdsl/registry.json` は壊れない)。
+
+### Version pinning は project-local で
+
+vdsl の version を project ごとに pin したい場合、**`<ProjectDir>/` の中で完結させる**。`~/.vdsl/` (user-global) には置かない。
+
+| 手段 | 場所 | 想定ユース |
+|---|---|---|
+| Rockspec dependency (推奨) | `<ProjectDir>/<project>-X.Y.Z-1.rockspec` で `vdsl >= X.Y` を declare、`luarocks make` で install | project が luarocks 前提で動くケース、CI で再現可 |
+| Vendor (固定 source 同梱) | `<ProjectDir>/.vdsl/vendor/lua/vdsl/` に vdsl tree を置き、`package.path` を project-local に shim | 完全 hermetic にしたい / luarocks 不在環境 / 古い version を凍結したい |
+
+vendoring を選ぶ場合の規約:
+
+- 物理位置は `<ProjectDir>/.vdsl/vendor/lua/vdsl/...` (薄メタの中、cache と並列)
+- `<ProjectDir>/.vdsl/vendor/` は **gitignore しない** (project が再現可能であることを優先、size 増は許容)
+- shim 例: `lua -e "package.path='./.vdsl/vendor/lua/?.lua;./.vdsl/vendor/lua/?/init.lua;'..package.path" sweeps/run.lua`
+
+`~/.vdsl/shared/` は cross-project 共有 catalog / asset 用であり、library code の vendor 先ではない。境界を混ぜない。
+
 ## 6. MCP root 解決順 (resolve_project_root)
 
 `vdsl-mcp` の root 解決は以下の優先順:
