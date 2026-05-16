@@ -461,6 +461,46 @@ local p_oll = vdsl.profile {
 T.eq("services[ollama].kind",      p_oll.services[1].kind,       "ollama")
 T.eq("services[ollama].models[1]", p_oll.services[1].models[1],  "llama3.2")
 
+-- llamacpp kind
+local p_lc = vdsl.profile {
+  name = "llamacpp-ok",
+  services = {
+    {
+      name       = "llamacpp",
+      kind       = "llamacpp",
+      model      = "/root/models/gemma-4-E4B-gguf/gemma-4-E4B-it-Q4_K_M.gguf",
+      port       = 8188,
+      binary     = "/root/llama.cpp/build/bin/llama-server",
+      alias      = "gemma",
+      extra_args = { "-ngl 999", "--jinja", "-c 32768", "-np 1" },
+    },
+  },
+}
+T.eq("services[llamacpp].kind",        p_lc.services[1].kind,        "llamacpp")
+T.eq("services[llamacpp].model",       p_lc.services[1].model,
+  "/root/models/gemma-4-E4B-gguf/gemma-4-E4B-it-Q4_K_M.gguf")
+T.eq("services[llamacpp].port",        p_lc.services[1].port,        8188)
+T.eq("services[llamacpp].binary",      p_lc.services[1].binary,
+  "/root/llama.cpp/build/bin/llama-server")
+T.eq("services[llamacpp].alias",       p_lc.services[1].alias,       "gemma")
+T.eq("services[llamacpp].extra_args[1]", p_lc.services[1].extra_args[1], "-ngl 999")
+
+-- llamacpp omitted optionals (binary/alias) — should serialize to JSON null.
+local p_lc_min = vdsl.profile {
+  name = "llamacpp-min",
+  services = {
+    { name = "lc", kind = "llamacpp", model = "/m.gguf", port = 8188 },
+  },
+}
+T.eq("services[llamacpp-min].extra_args len", #p_lc_min.services[1].extra_args, 0)
+
+T.err("services.llamacpp rejects missing model", function()
+  vdsl.profile {
+    name = "bad",
+    services = { { name = "lc", kind = "llamacpp", port = 8188 } },
+  }
+end)
+
 T.err("services rejects unsupported kind", function()
   vdsl.profile {
     name = "bad",

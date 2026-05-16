@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-16
+
+### Highlights
+
+Anchor entity — identity-bearing layer that pins a Subject + Variation set
+into a named, versioned registry. `train` / `revert` provide append-only
+versioning; `Cast{anchor=A}` resolves subject / lora / ipadapter from the
+registry's current anchor. JSON roundtrip fidelity via `emit("anchor")` and
+`vdsl.anchor.from(t)`.
+
+### Added
+
+- **Anchor entity** (`vdsl.anchor`) — identity-bearing layer that pins a
+  Subject + Variation set into a named, versioned registry.
+  `AnchorRegistry` maintains an append-only `versions[]` chain;
+  `Registry:train(spec)` appends a new `vN` snapshot without mutating
+  prior entries; `Registry:revert(tag)` moves only the current pointer.
+  (`bb9a850`, `649357a`)
+- **`vdsl.anchor.from(t)`** — deserialize a plain table (e.g. loaded from
+  JSON) back into a full `AnchorRegistry` with all `SubjectSpec`,
+  `AssetSpec`, `variations`, and `training_record` fields intact.
+  (`bb9a850`)
+- **`Anchor:render(name?)`** — produce a `vdsl.Subject` by applying
+  variation overlays through `Subject:with`; direct field assignment that
+  bypasses Subject's composition logic is prohibited by design.
+  (`bb9a850`)
+- **`vdsl.emit("anchor", reg)`** — serialize an `AnchorRegistry` to a
+  canonical JSON file (`<name>.json`) via the existing emit backend.
+  `from(decode(emit(reg)))` produces a deep-equal Registry (JSON roundtrip
+  fidelity). (`8a332c7`)
+- **`Cast{anchor=A}` adapter** — pass an `AnchorRegistry` directly to
+  `vdsl.cast`; `subject`, `lora`, and `ipadapter` are auto-resolved from
+  the registry's current anchor. Explicitly-provided fields take
+  precedence (override semantics). (`8a332c7`)
+- **`lua/vdsl/anchor.lua`** — single-file implementation of
+  `AnchorRegistry` / `Anchor` entities and `M.to_table` / `M.from_table`
+  serialization helpers. (`bb9a850`)
+- **`tests/test_anchor.lua`** — integration tests: Registry construction,
+  `train` / `revert` append-only invariants, `render` via `Subject:with`,
+  JSON roundtrip (`from` ↔ `emit`), `Cast{anchor=A}` adapter, and
+  backward-compatibility of existing Cast / Subject tests. (`bb9a850`,
+  `8a332c7`, `649357a`)
+- **`docs/anchor-design.md`** — Core Anchor entity design spec.
+  (`d0fbfdf`)
+
 ## [0.3.0] - 2026-05-06
 
 ### Highlights

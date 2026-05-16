@@ -565,6 +565,29 @@ local SERVICE_KIND_NORMALIZERS = {
       models = #models == 0 and json.array({}) or models,
     }
   end,
+  llamacpp = function(s, path)
+    -- llama.cpp `llama-server`. Operator must pre-place the binary
+    -- (build from source / hooks.post_install / pre-built download);
+    -- vdsl-mcp does not auto-install. `binary` defaults to `llama-server`
+    -- (PATH 解決). `model` is the absolute path to a `.gguf` file.
+    assert_type(s.model, "string", path .. ".model")
+    assert_type(s.port, "number", path .. ".port")
+    optional_type(s.binary, "string", path .. ".binary")
+    optional_type(s.alias, "string", path .. ".alias")
+    local extra = s.extra_args or {}
+    assert_type(extra, "table", path .. ".extra_args")
+    for j, a in ipairs(extra) do
+      assert_type(a, "string", path .. ".extra_args[" .. j .. "]")
+    end
+    return {
+      kind       = "llamacpp",
+      model      = s.model,
+      port       = s.port,
+      binary     = s.binary,
+      alias      = s.alias,
+      extra_args = #extra == 0 and json.array({}) or extra,
+    }
+  end,
 }
 
 local function normalize_services(list)
@@ -578,7 +601,7 @@ local function normalize_services(list)
     assert_type(s.name, "string", path .. ".name")
     if s.cmd ~= nil then
       error(("profile: %s.cmd is no longer supported; "
-        .. "use kind=\"vllm\"|\"ollama\" with platform-specific fields")
+        .. "use kind=\"vllm\"|\"ollama\"|\"llamacpp\" with platform-specific fields")
         :format(path), 3)
     end
     if seen_names[s.name] then
@@ -589,7 +612,7 @@ local function normalize_services(list)
     assert_type(s.kind, "string", path .. ".kind")
     local norm = SERVICE_KIND_NORMALIZERS[s.kind]
     if not norm then
-      error(("profile: %s.kind %q unsupported; allowed: vllm, ollama")
+      error(("profile: %s.kind %q unsupported; allowed: vllm, ollama, llamacpp")
         :format(path, s.kind), 3)
     end
     local platform = norm(s, path)

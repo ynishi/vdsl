@@ -85,7 +85,7 @@ vdsl Lua module の package 配置 (luarocks install / vendor / 両方) と vers
 - Rockspec dependency declaration (`luarocks install` 経由、project が luarocks 前提で動くケース)
 - Vendor (`<ProjectDir>/` 内に固定 source 同梱、hermetic / luarocks 不在環境 / 古い version 凍結)
 
-§2 確定後にどちらを default にするか、または両方をサポートするかを決める。それまでは vdsl 本体 を `~/projects/vdsl-work/vdsl` に clone した tree を `VDSL_WORK_DIR` で指す現運用 (vdsl-mcp 埋め込み Lua が require する経路) を暫定とする。
+§2 確定後にどちらを default にするか、または両方をサポートするかを決める。それまでは vdsl 本体を local 上に clone した tree を `VDSL_WORK_DIR` で指す現運用 (vdsl-mcp 埋め込み Lua が require する経路) を暫定とする。
 
 ## 6. MCP root 解決 — 現状の事実
 

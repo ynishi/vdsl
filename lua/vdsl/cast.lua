@@ -64,6 +64,45 @@ function Cast.new(opts)
     error("Cast: expected a table, got " .. type(opts), 2)
   end
 
+  -- opts.anchor adapter: auto-resolve subject/lora/ipadapter from AnchorRegistry.
+  -- Explicit opts values take precedence (override semantics, plan.md §Selection 3).
+  -- Uses copy-on-modify to avoid mutating caller's opts table.
+  if opts.anchor ~= nil then
+    if not Entity.is(opts.anchor, "anchor_registry") then
+      error("Cast: 'anchor' must be an AnchorRegistry", 2)
+    end
+    local reg = opts.anchor
+    -- Assets live on the current Anchor entity (version), not on AnchorRegistry itself.
+    local cur_anchor = reg:current()
+    local cur_assets = cur_anchor.assets
+
+    -- Build anchor-derived loras (field rename: assets[].path → cast lora[].name)
+    local anchor_loras = nil
+    if cur_assets and cur_assets.loras then
+      anchor_loras = {}
+      for i, l in ipairs(cur_assets.loras) do
+        anchor_loras[i] = { name = l.path, weight = l.weight or 1.0 }
+      end
+      if #anchor_loras == 0 then anchor_loras = nil end
+    end
+
+    -- Build anchor-derived ipadapter
+    local anchor_ipa = nil
+    if cur_assets and cur_assets.ipadapter_image then
+      anchor_ipa = { image = cur_assets.ipadapter_image, weight = 1.0 }
+    end
+
+    -- Reconstruct opts with anchor-derived defaults; explicit values override.
+    -- cur_anchor:render() applies Subject:with chain
+    -- (crux: Anchor:render variation overlay composition via Subject:with, never direct assign).
+    opts = {
+      subject   = opts.subject   or cur_anchor:render(),
+      negative  = opts.negative,
+      lora      = opts.lora      or anchor_loras,
+      ipadapter = opts.ipadapter or anchor_ipa,
+    }
+  end
+
   if opts.subject == nil then
     error("Cast: 'subject' is required (string or Subject)", 2)
   end

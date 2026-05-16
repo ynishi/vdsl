@@ -276,8 +276,7 @@ greps staged diffs and the recent git log for the forbidden
 patterns and fails loud. Run it before every commit that touches
 pod orchestration.
 
-Accident log: 2026-04-21 (see root `.claude/CLAUDE.md` / "Profile
-Evaluation Bypass"): an `/workspace/staging/ → B2` push was
+Historical motivation: an `/workspace/staging/ → B2` push was
 attempted by hand-rolling 8 `mv` calls into `MODEL_DIRS` to reuse
 `vdsl_storage_push`. Caught at interrupt. Correct fix: add a
 `staging.push` primitive to the Profile DSL and let Phase 5
@@ -366,10 +365,51 @@ strings appended to `vllm serve`). For Qwen3.6-27B-AWQ-INT4 + vllm
 | A100 40GB       | `16384`           | `0.90`                     | `fp8`              | Cudagraph fits, kept `--enforce-eager` for parity / repro stability.      |
 
 The reference `examples/12_vllm_profile.lua` ships with the 4090
-preset for portability; the parameterized factory at
-`projects/coding-orch/qwen_vllm.lua` exposes a `gpu` switch that picks
-one of the three presets. Source experiment log:
-`workspace/qwen3.6-vllm-runpod-setup.md`.
+preset for portability. A parameterized factory (see §Factory profiles
+below) can expose a `gpu` switch that picks one of the three presets.
+
+#### vLLM `extra_args` — Gemma 4 presets
+
+Gemma 4 requires three vllm-side flags to enable thinking + tool calling
+end-to-end (per the official vLLM recipes guide):
+
+```
+--reasoning-parser gemma4
+--tool-call-parser gemma4
+--enable-auto-tool-choice
+--chat-template examples/tool_chat_template_gemma4.jinja
+```
+
+The Jinja template above ships inside the `vllm/vllm-openai` image at
+the path shown; if vLLM is installed via `pip` outside the official
+image, locate it under the package's `examples/` directory and pass an
+absolute path instead.
+
+Variant × GPU support matrix (BF16 floor, from vLLM recipes):
+
+| Variant      | 4090 (24GB) | A40 (48GB) | A100-80 / H100 (80GB) |
+|--------------|-------------|------------|------------------------|
+| E2B / E4B    | ✅          | ✅         | ✅                     |
+| 26B-A4B (MoE)| ❌          | ❌ (AWQ 待ち) | ✅                  |
+| 31B (Dense)  | ❌          | ❌ (AWQ 待ち) | ✅                  |
+
+Default presets per GPU (chosen by `gemma_vllm.lua`):
+
+| GPU      | `--max-model-len` | `--gpu-memory-utilization` | `--kv-cache-dtype` | Notes                                                           |
+|----------|-------------------|----------------------------|--------------------|-----------------------------------------------------------------|
+| 4090     | `32768`           | `0.95`                     | `fp8`              | E2B / E4B only.                                                 |
+| A40      | `65536`           | `0.92`                     | `fp8`              | E2B / E4B only; 64K ctx for tool-loop headroom.                 |
+| A100-80  | `32768`           | `0.90`                     | `fp8`              | All variants. 31B / 26B-A4B base GPU.                           |
+| H100     | `32768`           | `0.90`                     | `fp8`              | All variants. Higher TTFT/throughput than A100-80.              |
+
+Multimodal capacity (`--limit-mm-per-prompt`) is selected per-apply
+via the `GEMMA_VLLM_MM` env: `text` (`image=0,audio=0`), `vision`
+(`image=4,audio=0`, default), or `full` (`image=4,audio=1`, E*-only).
+
+Source: https://recipes.vllm.ai/  Google / Gemma 4 Usage Guide.
+Caveat: the Unsloth GGUF guide warns CUDA 13.2 runtime degrades output
+quality. The validated path here is the cu129 image / wheel; if
+callers switch to cu130, validate output quality before promoting.
 
 ## 3. `vdsl_batch_tools` (primitive)
 
@@ -468,10 +508,10 @@ custom-node installs + multi-GB model pull). Single-call
 synchronous dispatch previously blocked the MCP tool for that
 entire window, with no progress signal. A dropped SSH channel
 would leave the caller stuck for the per-step 3600s timeout even
-after the pod-side work finished (see `.claude/CLAUDE.md`
-2026-04-22 "45 min stuck" accident record). The polling pattern
-decouples the MCP call from the long-running work and lets the
-caller verify liveness at any time.
+after the pod-side work finished (the "45-minute stuck" pattern
+observed in early apply runs). The polling pattern decouples the
+MCP call from the long-running work and lets the caller verify
+liveness at any time.
 
 Heavy phases internally dispatch via `exec_bg` (see §4.3), which
 launches the step via `runpod-cli task run` (detached) and polls
@@ -637,7 +677,6 @@ RunPod pytorch base (`runpod/pytorch:*-devel`) is:
 | `projects/profiles/zimage_turbo.lua`         | ComfyUI + ZImagePowerNodes + Z-Image Turbo                          | Mirrors `scripts/infra/setup_comfyui_pod.sh`'s Python-3.12-on-pytorch approach; weights pulled from B2. |
 | `projects/profiles/sdxl_illustrious.lua`     | ComfyUI + Impact Pack + Illustrious SDXL checkpoint                 | Base SDXL pod (txt2img + FaceDetailer only). No LoRA/ControlNet/IPAdapter — those layer on via `pipeline_*`. |
 | `projects/profiles/pipeline_i2i_sdxl.lua`    | Superset of `sdxl_illustrious` + ControlNet aux + IPAdapter + KJNodes + post-processing | Complex I2I flows: img2img / ControlNet (canny/depth/openpose) / IPAdapter vit-h / 4x-UltraSharp / SAM inpaint. See `projects/profiles/pipeline_i2i_sdxl_staging.md` for the B2 staging map (upstream → `b2://run-pod-ZQyB/...`). |
-| `projects/coding-orch/qwen_vllm.lua`         | vLLM serve + Qwen3.6-27B-AWQ-INT4 (no ComfyUI)                      | **Factory** (returns `function(opts) -> Profile`). Parameterized for GPU class (`"4090"` / `"A40"` / `"A100-40"`), `max_model_len`, `port`, `model_repo`. Consumed by the `qwen-setup-agent` (agent-profiles) for the coding-orch backend. README + preset table in `projects/coding-orch/README.md`. |
 
 #### Factory profiles (parameterized)
 
@@ -646,7 +685,7 @@ model id), prefer a **factory** — a Lua module that returns a function
 producing a Profile — over a static file. The pattern:
 
 ```lua
--- projects/coding-orch/qwen_vllm.lua
+-- projects/<your-app>/qwen_vllm.lua
 return function(opts)
   -- merge opts with defaults / GPU presets, then:
   return vdsl.profile { ... }
@@ -655,7 +694,7 @@ end
 
 ```lua
 -- caller (apply-time entrypoint)
-local make = require("projects.coding-orch.qwen_vllm")
+local make = require("projects.myapp.qwen_vllm")
 local profile = make({ gpu = "A40", port = 8188 })
 vdsl.profile_emit(profile)
 return profile

@@ -14,7 +14,6 @@
 --
 -- Cold construction: ~10 min on RunPod 4090 ephemeral
 --   (HF pull ~1 min + vllm install ~5 min + cold start ~3 min).
--- Reference: workspace/qwen3.6-vllm-runpod-setup.md
 
 local vdsl = require("vdsl")
 
