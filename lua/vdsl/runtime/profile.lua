@@ -588,6 +588,28 @@ local SERVICE_KIND_NORMALIZERS = {
       extra_args = #extra == 0 and json.array({}) or extra,
     }
   end,
+  sbv2 = function(s, path)
+    -- Style-Bert-VITS2 FastAPI server. Operator must pre-clone the repo
+    -- and install deps (`pip install -r requirements.txt`); vdsl-mcp does
+    -- not auto-install. `repo_dir` is the absolute path to the repo
+    -- containing `server_fastapi.py`. `python` defaults to `python3`
+    -- (PATH 解決).
+    assert_type(s.port, "number", path .. ".port")
+    assert_type(s.repo_dir, "string", path .. ".repo_dir")
+    optional_type(s.python, "string", path .. ".python")
+    local extra = s.extra_args or {}
+    assert_type(extra, "table", path .. ".extra_args")
+    for j, a in ipairs(extra) do
+      assert_type(a, "string", path .. ".extra_args[" .. j .. "]")
+    end
+    return {
+      kind       = "sbv2",
+      port       = s.port,
+      repo_dir   = s.repo_dir,
+      python     = s.python,
+      extra_args = #extra == 0 and json.array({}) or extra,
+    }
+  end,
 }
 
 local function normalize_services(list)
@@ -601,7 +623,7 @@ local function normalize_services(list)
     assert_type(s.name, "string", path .. ".name")
     if s.cmd ~= nil then
       error(("profile: %s.cmd is no longer supported; "
-        .. "use kind=\"vllm\"|\"ollama\"|\"llamacpp\" with platform-specific fields")
+        .. "use kind=\"vllm\"|\"ollama\"|\"llamacpp\"|\"sbv2\" with platform-specific fields")
         :format(path), 3)
     end
     if seen_names[s.name] then
@@ -612,7 +634,7 @@ local function normalize_services(list)
     assert_type(s.kind, "string", path .. ".kind")
     local norm = SERVICE_KIND_NORMALIZERS[s.kind]
     if not norm then
-      error(("profile: %s.kind %q unsupported; allowed: vllm, ollama, llamacpp")
+      error(("profile: %s.kind %q unsupported; allowed: vllm, ollama, llamacpp, sbv2")
         :format(path, s.kind), 3)
     end
     local platform = norm(s, path)

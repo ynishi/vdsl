@@ -501,6 +501,44 @@ T.err("services.llamacpp rejects missing model", function()
   }
 end)
 
+-- sbv2 kind (Style-Bert-VITS2 FastAPI server)
+local p_sbv2 = vdsl.profile {
+  name = "sbv2-ok",
+  services = {
+    {
+      name       = "sbv2",
+      kind       = "sbv2",
+      port       = 5000,
+      repo_dir   = "/root/Style-Bert-VITS2",
+      python     = "/root/venv/bin/python",
+      extra_args = { "--host 0.0.0.0" },
+    },
+  },
+}
+T.eq("services[sbv2].kind",        p_sbv2.services[1].kind,        "sbv2")
+T.eq("services[sbv2].port",        p_sbv2.services[1].port,        5000)
+T.eq("services[sbv2].repo_dir",    p_sbv2.services[1].repo_dir,
+  "/root/Style-Bert-VITS2")
+T.eq("services[sbv2].python",      p_sbv2.services[1].python,
+  "/root/venv/bin/python")
+T.eq("services[sbv2].extra_args[1]", p_sbv2.services[1].extra_args[1], "--host 0.0.0.0")
+
+-- sbv2 omitted optionals (python) — should serialize to JSON null.
+local p_sbv2_min = vdsl.profile {
+  name = "sbv2-min",
+  services = {
+    { name = "sbv2", kind = "sbv2", port = 5000, repo_dir = "/root/SBV2" },
+  },
+}
+T.eq("services[sbv2-min].extra_args len", #p_sbv2_min.services[1].extra_args, 0)
+
+T.err("services.sbv2 rejects missing repo_dir", function()
+  vdsl.profile {
+    name = "bad",
+    services = { { name = "sbv2", kind = "sbv2", port = 5000 } },
+  }
+end)
+
 T.err("services rejects unsupported kind", function()
   vdsl.profile {
     name = "bad",
