@@ -727,9 +727,12 @@ Explicitly **not** handled by this design:
 - Pod-side `state.json` / `profile_hash` tracking. The manifest itself
   is the source of truth; re-applying the same manifest is a no-op by
   way of step-level idempotency.
-- Starting ComfyUI "for good" as a daemon. `profile_apply` restarts
-  ComfyUI as the final step of apply. Long-term supervision (systemd
-  / tmux / RunPod start command) is the user's call.
+- Starting services "for good" as a daemon. `profile_apply` starts
+  services as the final step of apply. Long-term supervision (systemd
+  / tmux / RunPod start command) is the user's call. For llama.cpp
+  profiles, `post_install` writes `/workspace/.vdsl/start_llamacpp.sh`
+  so pod resume needs only `vdsl_exec "bash /workspace/.vdsl/start_llamacpp.sh"`
+  instead of a full `profile_apply` re-run.
 - `pre_start` / `post_start` hooks. They exist in the schema as
   reserved keys but are not run by `profile_apply`. Document when you
   actually wire them.

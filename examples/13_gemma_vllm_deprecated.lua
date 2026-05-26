@@ -1,5 +1,11 @@
--- examples/13_gemma_vllm.lua
+-- examples/13_gemma_vllm_deprecated.lua
 -- vLLM profile example: Gemma 4 E4B-IT on RunPod (A40 reference).
+--
+-- NOTE: This file is kept for reference only. RunPod ephemeral pods
+-- carry NVIDIA driver 550-570, while vllm 0.20+ cu130 wheels (the
+-- version range that supports Gemma 4) demand driver 575+. The
+-- operational primary route is now `examples/14_gemma_llamacpp.lua`
+-- (llama.cpp + GGUF, runs cleanly on driver 550).
 --
 -- This is a *reference* Profile, kept self-contained for readability.
 -- For production / parameterized use (variant, GPU class, port,

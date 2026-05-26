@@ -40,7 +40,7 @@ local profile = vdsl.profile {
   llm_models = {
     {
       src     = "hf://cyankiwi/Qwen3.6-27B-AWQ-INT4",
-      dst_dir = "/root/models/qwen-awq",
+      dst_dir = "/workspace/models/qwen-awq",
     },
   },
 
@@ -50,7 +50,7 @@ local profile = vdsl.profile {
     {
       name                 = "vllm",
       kind                 = "vllm",
-      model                = "/root/models/qwen-awq",
+      model                = "/workspace/models/qwen-awq",
       port                 = 8188,
       dtype                = "auto",
       tensor_parallel_size = 1,

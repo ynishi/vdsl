@@ -118,6 +118,33 @@ if [ ! -x %s ]; then
   cmake --build build --config Release -j --target llama-server llama-cli
 fi
 ls -la %s %s
+
+# Write a self-contained startup script to /workspace so that pod
+# resume (stop → start) can bring the service back with a single
+# `bash /workspace/.vdsl/start_llamacpp.sh` — no profile_apply needed.
+# /workspace persists across stop/start; /etc and apt packages do not.
+mkdir -p /workspace/.vdsl
+cat > /workspace/.vdsl/start_llamacpp.sh <<'STARTUP'
+#!/usr/bin/env bash
+set -e
+BINARY="%s"
+MODEL="%s"
+PORT=8188
+LOGFILE=/workspace/.vdsl/service_llamacpp.log
+PIDFILE=/workspace/.vdsl/service_llamacpp.pid
+
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+  echo "llamacpp already running (pid $(cat "$PIDFILE"))"
+  exit 0
+fi
+
+nohup "$BINARY" -m "$MODEL" --host 0.0.0.0 --port "$PORT" \
+  --alias gemma -ngl 999 --jinja -c 32768 -np 1 \
+  > "$LOGFILE" 2>&1 &
+echo $! > "$PIDFILE"
+echo "llamacpp started (pid $!, log $LOGFILE)"
+STARTUP
+chmod +x /workspace/.vdsl/start_llamacpp.sh
 ]],
       dst_dir,
       gguf_path,
@@ -131,7 +158,9 @@ ls -la %s %s
       llama_dir,
       llama_dir,
       binary_path,
-      llama_dir .. "/build/bin/llama-cli"
+      llama_dir .. "/build/bin/llama-cli",
+      binary_path,
+      gguf_path
     ),
   },
 
