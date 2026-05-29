@@ -2,10 +2,10 @@
 -- Thin wrapper with validation and key-miss guard.
 -- Provides reusable, hint-bearing Trait sets.
 --
--- Design note: Catalog is intentionally NOT an Entity (no Entity.define).
--- It is a validation pass that returns the input table with a guard metatable.
--- Missing-key access returns nil (safe for conditional checks).
--- Entity.is(catalog, "catalog") is false.
+-- Design note: Catalog is a Col (collection) entity (Entity.define_col).
+-- __index stays free for member lookup (catalog.portrait), so missing-key
+-- access returns nil; the type tag enables Entity.is(catalog, "catalog") and
+-- the collection lifecycle via Entity.Col.serialize/clone/with/equals.
 --
 -- Usage:
 --   local catalog = vdsl.catalog {
@@ -21,13 +21,15 @@
 
 local Entity = require("vdsl.entity")
 
+local CatalogMeta = Entity.define_col("catalog")
+
 local M = {}
 
 --- Create a Catalog from a name→Trait table.
 -- Validates that every value is a Trait entity.
 -- Missing-key access returns nil (safe for conditional checks).
 -- @param entries table { name = Trait, ... }
--- @return table the same table with guard metatable
+-- @return table the same table tagged as a catalog Col
 function M.new(entries)
   if type(entries) ~= "table" then
     error("Catalog: expected a table of named Traits", 2)
@@ -41,7 +43,7 @@ function M.new(entries)
         .. (Entity.type_of(value) or type(value)) .. ")", 2)
     end
   end
-  return setmetatable(entries, {})
+  return setmetatable(entries, CatalogMeta)
 end
 
 --- Extend an existing catalog with additional entries (in-place).
