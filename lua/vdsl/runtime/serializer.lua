@@ -176,13 +176,28 @@ function M.serialize(opts)
     cast  = nil,
   }
 
-  -- World
+  -- World (model identity + reusable execution defaults). All execution
+  -- params must roundtrip so values set on World — not just opts-level —
+  -- survive PNG embed (previously only model/vae/clip_skip were captured).
   if opts.world and Entity.is(opts.world, "world") then
     recipe.world = {
       model     = opts.world.model,
       vae       = opts.world.vae,
       clip_skip = opts.world.clip_skip,
+      sampler   = opts.world.sampler,
+      steps     = opts.world.steps,
+      cfg       = opts.world.cfg,
+      scheduler = opts.world.scheduler,
+      size      = opts.world.size,
+      denoise   = opts.world.denoise,
     }
+    if opts.world.lora then
+      recipe.world.lora = {}
+      for _, l in ipairs(opts.world.lora) do
+        recipe.world.lora[#recipe.world.lora + 1] =
+          { name = l.name, weight = ser_weight(l.weight) }
+      end
+    end
   end
 
   -- Casts
@@ -221,9 +236,10 @@ function M.serialize(opts)
   recipe.scheduler = opts.scheduler
   recipe.denoise   = opts.denoise
   recipe.size      = opts.size
-  recipe.output    = opts.output
-  recipe.auto_post = opts.auto_post
-  recipe.strategy  = opts.strategy
+  recipe.output      = opts.output
+  recipe.auto_post   = opts.auto_post
+  recipe.strategy    = opts.strategy
+  recipe.on_conflict = opts.on_conflict
 
   return json.encode(recipe, false)
 end
@@ -422,9 +438,10 @@ function M.deserialize(data)
   opts.scheduler = recipe.scheduler
   opts.denoise   = recipe.denoise
   opts.size      = recipe.size
-  opts.output    = recipe.output
-  opts.auto_post = recipe.auto_post
-  opts.strategy  = recipe.strategy
+  opts.output      = recipe.output
+  opts.auto_post   = recipe.auto_post
+  opts.strategy    = recipe.strategy
+  opts.on_conflict = recipe.on_conflict
 
   return opts
 end
