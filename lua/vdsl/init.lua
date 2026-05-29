@@ -28,7 +28,6 @@ local serializer = require("vdsl.runtime.serializer")
 local json_mod   = require("vdsl.util.json")
 local fs         = require("vdsl.runtime.fs")
 local emit_mod   = require("vdsl.runtime.emit")
-local Anchor     = require("vdsl.anchor")
 local Shot       = require("vdsl.shot")
 local config_mod = require("vdsl.config")
 local M = {}
@@ -54,13 +53,6 @@ end
 function M.cast(opts)
   return Cast.new(opts)
 end
-
---- Anchor entity and AnchorRegistry public API.
--- vdsl.anchor.from(t)  → AnchorRegistry from plain table
--- vdsl.anchor{...}     → same (callable)
-M.anchor = setmetatable({ from = Anchor.from }, {
-  __call = function(_, opts) return Anchor.from(opts) end,
-})
 
 --- Shot entity public API.
 -- vdsl.shot{...}        → Shot.new(opts)  (callable)
@@ -499,17 +491,6 @@ function M.emit(name, result, render_opts)
     if patched then
       result.json = json_mod.encode(result.prompt, true)
     end
-  end
-
-  -- Anchor registry dispatch: route anchor_registry entities to JSON file output.
-  -- Existing workflow path (result.json) is unchanged; type check guards the branch.
-  -- Underscore prefix marks the file as a sidecar (mirrors the `_recipe_<name>.json`
-  -- convention at runtime/emit.lua:50) so batch collectors that scan VDSL_OUT_DIR
-  -- for workflow JSON files skip non-workflow Anchor registries.
-  if Entity.is(result, "anchor_registry") then
-    local plain    = Anchor.to_table(result)
-    local json_str = json_mod.encode(plain, false)
-    return emit_mod.write("_anchor_" .. result.name, json_str)
   end
 
   local ok = emit_mod.write(name, result.json)

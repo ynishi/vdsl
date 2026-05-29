@@ -60,7 +60,7 @@ print(result.json)
 | Identity | **Subject** | Composed Trait chain |
 | Reusable set | **Catalog** | Named Trait dictionary |
 | Preset bundle | **Theme** | Defaults + negatives + traits |
-| Versioned identity | **Anchor** | Named Subject + Variation registry |
+| Finished image | **Shot** | Full render recipe (World + Cast + Stage + Post) |
 
 All entities are **immutable**. Every mutation returns a new instance.
 
@@ -72,9 +72,11 @@ All entities are **immutable**. Every mutation returns a new instance.
 - **Import** -- `vdsl.import_png()` reads back vdsl recipes or decodes ComfyUI prompts
 - **Registry** -- `vdsl.connect()` queues jobs to a running ComfyUI instance
 - **Run** -- `vdsl.run()` full pipeline: compile, queue, poll, download, embed
-- **Anchor** -- `vdsl.anchor{}` pins a Subject + Variations into a versioned
-  registry; `Registry:train` appends immutably, `Registry:revert` moves only the
-  current pointer; `Cast{anchor=A}` auto-resolves subject/lora/ipadapter
+- **Serialize** -- `entity:serialize()` projects any entity to a plain,
+  JSON-ready table; `Entity.deserialize(type, t)` restores it losslessly.
+  Identity reuse and versioning are plain serialize -> store -> load: the
+  application owns the storage backend and version history (see
+  `docs/entity-architecture.md`)
 - **Profile** -- `vdsl.profile{}` declares the whole pod (ComfyUI / vLLM / Ollama,
   models, custom nodes, sync routes) as a canonical JSON manifest
 
