@@ -3,7 +3,7 @@
 
 local Entity = require("vdsl.entity")
 
-local Stage = Entity.define("stage")
+local Stage = Entity.define_core("stage")
 
 local VALID_PREPROCESSORS = {
   canny = true, depth = true, lineart = true,

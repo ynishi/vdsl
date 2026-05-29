@@ -19,7 +19,7 @@
 local Entity = require("vdsl.entity")
 local Trait  = require("vdsl.trait")
 
-local Subject = Entity.define("subject")
+local Subject = Entity.define_core("subject")
 
 --- Create a new Subject from a base description.
 -- @param base_text string core identity (e.g. "cat", "warrior woman")

@@ -14,7 +14,7 @@
 local Entity = require("vdsl.entity")
 local config = require("vdsl.config")
 
-local World = Entity.define("world")
+local World = Entity.define_core("world")
 
 local DEFAULTS = {
   clip_skip = 1,

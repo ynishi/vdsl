@@ -9,7 +9,7 @@
 
 local Entity = require("vdsl.entity")
 
-local Post = Entity.define("post")
+local Post = Entity.define_core("post")
 
 --- Create a single post-processing operation.
 -- @param op_type string operation type (e.g. "upscale", "hires", "face")

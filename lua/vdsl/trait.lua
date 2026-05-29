@@ -5,7 +5,7 @@
 
 local Entity = require("vdsl.entity")
 
-local Trait = Entity.define("trait")
+local Trait = Entity.define_core("trait")
 
 --- Create a new Trait.
 -- @param text string prompt fragment

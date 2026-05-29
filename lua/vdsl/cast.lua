@@ -8,7 +8,7 @@ local Entity  = require("vdsl.entity")
 local Subject = require("vdsl.subject")
 local Trait   = require("vdsl.trait")
 
-local Cast = Entity.define("cast")
+local Cast = Entity.define_core("cast")
 
 --- Validate a single LoRA entry.
 local function validate_lora(lora, index)
