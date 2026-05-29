@@ -67,7 +67,7 @@ end
 -- serialize / deserialize / clone / with / equals.
 -- Two derivation families share one lifecycle implementation:
 --   Core (value/aggregate) — __index = method dispatch, lifecycle as :methods
---   Col  (collection)      — __index = member lookup,  lifecycle as Col.* statics
+--   Collection             — __index = member lookup,  lifecycle as Collection.* statics
 -- ============================================================
 
 --- Deep copy preserving entity metatables (so clones keep their type).
@@ -157,20 +157,20 @@ function M.define_core(name)
 end
 
 --- Collection family: lifecycle exposed as statics so __index stays free
---- for member lookup (e.g. catalog.portrait). Use with define_col.
-M.Col = {
+--- for member lookup (e.g. catalog.portrait). Use with define_collection.
+M.Collection = {
   clone     = lc_clone,
   equals    = lc_equals,
   serialize = lc_serialize,
   with      = lc_with,
 }
 
---- Define a Col (collection) type.
+--- Define a Collection type.
 -- Instances are plain member tables tagged with the type; missing-key access
--- returns nil (no method dispatch on __index). Lifecycle via Entity.Col.*.
+-- returns nil (no method dispatch on __index). Lifecycle via Entity.Collection.*.
 -- @param name string unique type name
 -- @return table instance metatable (use as metatable on the member table)
-function M.define_col(name)
+function M.define_collection(name)
   local meta = { __type = name }   -- type tag only; no __index method dispatch
   REGISTRY[name] = meta
   return meta

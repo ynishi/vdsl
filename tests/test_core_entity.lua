@@ -3,7 +3,7 @@
 --
 -- Verifies the lifecycle added to the bare type system:
 -- Core (value/aggregate) :clone/:with/:equals/:serialize + deserialize roundtrip,
--- Col  (collection) member-access + Entity.Col.* statics, both via one impl.
+-- Collection member-access + Entity.Collection.* statics, both via one impl.
 
 local Entity = require("vdsl.entity")
 local T      = require("harness")
@@ -55,9 +55,9 @@ T.ok("nested: roundtrip eq", l:equals(lback))
 T.ok("nested: inner type",   Entity.is(lback.a, "test_point"))
 
 -- ============================================================
--- Col: define_col collection (member access + static lifecycle)
+-- Col: define_collection collection (member access + static lifecycle)
 -- ============================================================
-local PaletteMeta = Entity.define_col("test_palette")
+local PaletteMeta = Entity.define_collection("test_palette")
 local pal = setmetatable({ red = "#f00", blue = "#00f" }, PaletteMeta)
 
 T.ok("col: is type",         Entity.is(pal, "test_palette"))
@@ -66,19 +66,19 @@ T.eq("col: member access",   pal.red, "#f00")
 T.eq("col: miss is nil",     pal.green, nil)
 T.eq("col: no method index", pal.serialize, nil)   -- lifecycle is static, not on instance
 
-local pc = Entity.Col.clone(pal)
-T.ok("col: clone equals",    Entity.Col.equals(pal, pc))
+local pc = Entity.Collection.clone(pal)
+T.ok("col: clone equals",    Entity.Collection.equals(pal, pc))
 T.eq("col: clone member",    pc.red, "#f00")
 
-local pw = Entity.Col.with(pal, { green = "#0f0" })
+local pw = Entity.Collection.with(pal, { green = "#0f0" })
 T.eq("col: with adds",       pw.green, "#0f0")
 T.eq("col: with keeps",      pw.red, "#f00")
 T.eq("col: with orig kept",  pal.green, nil)
 
-local ps = Entity.Col.serialize(pal)
+local ps = Entity.Collection.serialize(pal)
 T.eq("col: ser type tag",    ps._type, "test_palette")
 local pback = Entity.deserialize("test_palette", ps)
-T.ok("col: roundtrip eq",    Entity.Col.equals(pal, pback))
+T.ok("col: roundtrip eq",    Entity.Collection.equals(pal, pback))
 T.ok("col: roundtrip type",  Entity.is(pback, "test_palette"))
 
 T.summary()

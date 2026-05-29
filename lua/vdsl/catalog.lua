@@ -2,10 +2,10 @@
 -- Thin wrapper with validation and key-miss guard.
 -- Provides reusable, hint-bearing Trait sets.
 --
--- Design note: Catalog is a Col (collection) entity (Entity.define_col).
+-- Design note: Catalog is a Collection entity (Entity.define_collection).
 -- __index stays free for member lookup (catalog.portrait), so missing-key
 -- access returns nil; the type tag enables Entity.is(catalog, "catalog") and
--- the collection lifecycle via Entity.Col.serialize/clone/with/equals.
+-- the collection lifecycle via Entity.Collection.serialize/clone/with/equals.
 --
 -- Usage:
 --   local catalog = vdsl.catalog {
@@ -21,7 +21,7 @@
 
 local Entity = require("vdsl.entity")
 
-local CatalogMeta = Entity.define_col("catalog")
+local CatalogMeta = Entity.define_collection("catalog")
 
 local M = {}
 
