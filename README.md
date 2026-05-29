@@ -77,6 +77,9 @@ All entities are **immutable**. Every mutation returns a new instance.
   Identity reuse and versioning are plain serialize -> store -> load: the
   application owns the storage backend and version history (see
   `docs/entity-architecture.md`)
+- **Cam** -- `vdsl.cam{ world, base, shots, negative?, common? }` renders a
+  sequence of shots through one identity Subject (each shot overlays a per-shot
+  trait + an optional shared `common` trait), emitting one image per shot
 - **Profile** -- `vdsl.profile{}` declares the whole pod (ComfyUI / vLLM / Ollama,
   models, custom nodes, sync routes) as a canonical JSON manifest
 

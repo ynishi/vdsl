@@ -29,6 +29,7 @@ local json_mod   = require("vdsl.util.json")
 local fs         = require("vdsl.runtime.fs")
 local emit_mod   = require("vdsl.runtime.emit")
 local Shot       = require("vdsl.shot")
+local Cam        = require("vdsl.cam")
 local config_mod = require("vdsl.config")
 local M = {}
 
@@ -60,6 +61,14 @@ end
 M.shot = setmetatable({ from = Shot.from }, {
   __call = function(_, opts) return Shot.new(opts) end,
 })
+
+--- vdsl.cam{...}: render a sequence of shots through one identity Subject.
+-- The cam render loop lives in lua/vdsl/cam.lua so its DSL-shape knowledge is
+-- not duplicated in host string templates. deps are injected here to avoid a
+-- circular require (render/cast/emit are defined on M below).
+function M.cam(opts)
+  return Cam.run({ render = M.render, cast = M.cast, emit = M.emit }, opts)
+end
 
 function M.stage(opts)
   return Stage.new(opts)
