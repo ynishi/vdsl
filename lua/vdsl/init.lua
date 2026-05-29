@@ -29,6 +29,7 @@ local json_mod   = require("vdsl.util.json")
 local fs         = require("vdsl.runtime.fs")
 local emit_mod   = require("vdsl.runtime.emit")
 local Anchor     = require("vdsl.anchor")
+local Shot       = require("vdsl.shot")
 local config_mod = require("vdsl.config")
 local M = {}
 
@@ -59,6 +60,13 @@ end
 -- vdsl.anchor{...}     → same (callable)
 M.anchor = setmetatable({ from = Anchor.from }, {
   __call = function(_, opts) return Anchor.from(opts) end,
+})
+
+--- Shot entity public API.
+-- vdsl.shot{...}        → Shot.new(opts)  (callable)
+-- vdsl.shot.from(json)  → Shot.from(json) (deserialize)
+M.shot = setmetatable({ from = Shot.from }, {
+  __call = function(_, opts) return Shot.new(opts) end,
 })
 
 function M.stage(opts)
@@ -301,8 +309,12 @@ M.training = setmetatable({}, {
 -- Execution layer
 -- ============================================================
 
+--- Compile render opts to a ComfyUI workflow JSON.
+-- Backward-compatible adapter: wraps opts in a Shot then compiles.
+-- @param opts table render options (world, cast, ...)
+-- @return table { prompt, json, graph }
 function M.render(opts)
-  return compiler.compile(opts)
+  return Shot.new(opts):compile()
 end
 
 --- Analyze prompt token usage without building a graph.

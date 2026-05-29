@@ -880,7 +880,7 @@ function M.compile(opts)
     cfg          = opt(opts, "cfg", 7.0),
     sampler_name = opt(opts, "sampler", "euler"),
     scheduler    = opt(opts, "scheduler", "normal"),
-    denoise      = opts.denoise or denoise_default,
+    denoise      = opt(opts, "denoise", denoise_default),
   })
   latent_ref = sampler(0)
 

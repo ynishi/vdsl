@@ -28,7 +28,7 @@ local function validate_controlnet(cn, index)
 end
 
 --- Create a Stage entity.
--- @param opts table { controlnet, mask, latent_image }
+-- @param opts table { controlnet, latent_image }
 -- @return Stage
 function Stage.new(opts)
   if type(opts) ~= "table" then
@@ -53,7 +53,6 @@ function Stage.new(opts)
 
   local self = setmetatable({}, Stage)
   self.controlnet   = controlnets
-  self.mask         = opts.mask
   self.latent_image = opts.latent_image
   return self
 end
