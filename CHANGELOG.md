@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Removed
+
+- **Anchor entity** (`vdsl.anchor`) — the identity-bearing registry layer added
+  in 0.4.0 is removed. Identity reuse is now a plain `Subject` plus
+  `entity:serialize()` / `Entity.deserialize` (the application owns storage and
+  version history). Dropped `lua/vdsl/anchor.lua`, `tests/test_anchor.lua`,
+  `docs/anchor-design.md`, `examples/14_anchor.lua`, and the `Cast{anchor=A}`
+  adapter. See `docs/entity-architecture.md` §"Why there is no Anchor type" and
+  `examples/15_identity_reuse.lua` for the migration. The next release's
+  rockspec drops the `vdsl.anchor` module entry accordingly. (`843f085`)
+
+### Added
+
+- **`vdsl.cam{ world, base, shots, negative?, common? }`** — renders a sequence
+  of shots through one fixed identity `Subject`. Each shot overlays its per-shot
+  `trait` (optionally combined with a shared `common` framing trait) on top of
+  the identity via `Subject:with`, then renders and emits one image per shot.
+  The render/cast loop shape now lives in exactly one place
+  (`lua/vdsl/cam.lua`) instead of being string-templated by host tools. See
+  `docs/cam-and-identity.md` and `examples/16_cam_sequence.lua`.
+  (`dd0dcb4`, `de61a6e`)
+
 ## [0.4.0] - 2026-05-16
 
 ### Highlights

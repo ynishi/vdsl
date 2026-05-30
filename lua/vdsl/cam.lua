@@ -11,6 +11,14 @@
 -- Wired into the package as `vdsl.cam{...}` (see init.lua). `deps` is injected
 -- by init.lua to avoid a circular require (render/cast/emit live on the vdsl
 -- module table, not in leaf modules).
+--
+-- Prompt composition order (positive prompt, left to right):
+--   1. identity base text    -- the Subject's base string
+--   2. identity traits       -- traits fixed on the identity via Subject:with
+--   3. per-shot `trait`       -- this shot's overlay
+--   4. shared `common` trait  -- framing applied to every shot
+-- The negative prompt is a separate channel (the cast's `negative`); it is not
+-- concatenated into the positive prompt. See docs/cam-and-identity.md.
 
 local M = {}
 
