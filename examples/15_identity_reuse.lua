@@ -72,7 +72,7 @@ assert(restored:resolve() == identity:resolve(), "identity must round-trip lossl
 -- ============================================================
 -- 4. Render each variation through the (restored) identity
 -- ============================================================
-local w   = vdsl.world { model = "waiIllustrious_v16.safetensors", clip_skip = 2 }
+local w   = vdsl.world { model = os.getenv("VDSL_MODEL") or "waiIllustrious_v16.safetensors", clip_skip = 2 }
 local neg = C.quality.neg_default + C.quality.neg_anatomy
 
 print("=== Identity Reuse Showcase ===")

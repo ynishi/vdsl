@@ -20,7 +20,7 @@ local zimage = require("vdsl.compilers.zimage")
 -- ============================================================
 
 local w = vdsl.world {
-  model = "z_image_turbo_fp16.safetensors",
+  model = os.getenv("VDSL_MODEL") or "z_image_turbo_fp16.safetensors",
   vae   = "ae.safetensors",
 }
 

@@ -12,7 +12,7 @@ local vdsl = require("vdsl")
 local C    = vdsl.catalogs
 
 local w = vdsl.world {
-  model     = "waiIllustrious_v16.safetensors",
+  model     = os.getenv("VDSL_MODEL") or "waiIllustrious_v16.safetensors",
   clip_skip = 2,
 }
 
