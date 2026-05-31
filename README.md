@@ -81,6 +81,10 @@ All entities are **immutable**. Every mutation returns a new instance.
   sequence of shots through one identity Subject (each shot overlays a per-shot
   trait + an optional shared `common` trait), emitting one image per shot
   (see `docs/cam-and-identity.md`)
+- **Over-prompt lint** -- `vdsl.check` emits warn-only diagnostics when a single
+  prompt category overflows (lighting / 2D-style words), naming the offending
+  clauses; `Shot:intent(category)` silences a deliberate one
+  (see `docs/over-prompt-lint.md`)
 - **Profile** -- `vdsl.profile{}` declares the whole pod (ComfyUI / vLLM / Ollama,
   models, custom nodes, sync routes) as a canonical JSON manifest
 

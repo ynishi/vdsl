@@ -19,6 +19,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **Over-prompt lint** (`vdsl.lint.over_prompt`) — `vdsl.check` now emits
+  warn-only diagnostics when a single prompt category overflows (lighting words
+  → light burn, 2D-style words → cartoonification), naming the offending
+  clauses. Detection only; never blocks or rewrites. `Shot:intent(category)`
+  silences a deliberate over-prompt and records the intent as provenance.
+  Surfaces through `vdsl.check` / `Shot:check` / `compiler.check`. See
+  `docs/over-prompt-lint.md`.
+
 - **`vdsl.cam{ world, base, shots, negative?, common? }`** — renders a sequence
   of shots through one fixed identity `Subject`. Each shot overlays its per-shot
   `trait` (optionally combined with a shared `common` framing trait) on top of

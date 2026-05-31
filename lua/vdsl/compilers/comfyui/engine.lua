@@ -14,6 +14,7 @@ local json   = require("vdsl.util.json")
 local Weight = require("vdsl.weight")
 local Post   = require("vdsl.post")
 local params = require("vdsl.compilers.comfyui.parameters")
+local over_prompt = require("vdsl.lint.over_prompt")
 
 local M = {}
 
@@ -1048,6 +1049,18 @@ function M.check(opts)
             text     = cat_text,
             tokens   = M.estimate_tokens(cat_text),
           }
+        end
+      end
+
+      -- Over-prompt lint (warn-only): category-localized overflow such as
+      -- lighting / 2D-style words piled on top of preset anchors. Detection
+      -- only — never blocks. Authors silence intentional cases via
+      -- Shot:intent(category), carried here as opts.intents.
+      local op = over_prompt.check(groups, opts.intents)
+      for _, finding in ipairs(op.findings) do
+        if not finding.suppressed then
+          warnings[#warnings + 1] = string.format(
+            "cast[%d] %s", ci, over_prompt.format(finding))
         end
       end
     end

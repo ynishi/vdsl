@@ -16,12 +16,15 @@ local VALID_CONFLICT_STRATEGIES = {
 }
 
 -- Flat render fields (everything compiler/serializer may read from opts)
+-- "intents" carries over-prompt lint suppression (see Shot:intent); it is read
+-- by compiler.check and preserved as provenance.
 local RENDER_FIELDS = {
   "world", "cast", "stage", "atmosphere", "negative",
   "seed", "steps", "cfg", "sampler", "scheduler",
   "denoise", "size", "strategy", "on_conflict",
   "post", "auto_post", "output",
   "gen_id", "run_id", "workspace_id", "script", "ts",
+  "intents",
 }
 
 --- Create a Shot entity from render opts.
@@ -102,6 +105,26 @@ end
 -- @return table diagnostics
 function Shot:check()
   return require("vdsl.compiler").check(self)
+end
+
+--- Declare an intentional over-prompt and suppress its lint warning.
+-- The over-prompt lint (see vdsl.lint.over_prompt) is warn-only; this is its
+-- "ignore" side. A category may be a lexcat ("light"/"lock"/"quality") or a
+-- friendly alias ("blown-highlight", "stylized", ...). The intent is recorded
+-- on the Shot as provenance and survives clone/serialize.
+-- Returns a new Shot (immutable).
+-- @param category string lexcat or alias to silence
+-- @return Shot
+function Shot:intent(category)
+  if type(category) ~= "string" or category == "" then
+    error("Shot:intent expects a non-empty category string", 2)
+  end
+  local set = {}
+  if type(self.intents) == "table" then
+    for k in pairs(self.intents) do set[k] = true end
+  end
+  set[category] = true
+  return self:with({ intents = set })
 end
 
 --- Serialize this Shot to a JSON recipe string.
