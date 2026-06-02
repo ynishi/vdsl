@@ -15,6 +15,7 @@ local Weight = require("vdsl.weight")
 local Post   = require("vdsl.post")
 local params = require("vdsl.compilers.comfyui.parameters")
 local over_prompt = require("vdsl.lint.over_prompt")
+local dedup = require("vdsl.lint.dedup")
 
 local M = {}
 
@@ -227,7 +228,7 @@ end
 -- @param atmosphere_text string|nil resolved atmosphere prompt text
 -- @param strategy string|nil prompt ordering strategy
 -- @return model_ref, positive_ref, negative_ref
-local function compile_casts(g, casts, model_ref, clip_ref, world, atmosphere_text, strategy)
+local function compile_casts(g, casts, model_ref, clip_ref, world, atmosphere_text, strategy, no_lint_fix)
   -- Phase 0: World LoRA (model-level correction, applied before cast LoRAs)
   if world.lora then
     for _, lora in ipairs(world.lora) do
@@ -313,6 +314,13 @@ local function compile_casts(g, casts, model_ref, clip_ref, world, atmosphere_te
   for _, cast in ipairs(casts) do
     local prompt_text   = assemble_prompt(cast.subject, atmosphere_text, strategy)
     local negative_text = Entity.resolve_text(cast.negative)
+
+    -- Dedup fix (ESLint-style autofix): drop verbatim duplicate clauses.
+    -- Disabled per-render via `no_lint_fix = true`.
+    if not no_lint_fix then
+      prompt_text   = dedup.fix(prompt_text)
+      negative_text = dedup.fix(negative_text)
+    end
 
     local pos = g:add("CLIPTextEncode", {
       clip = clip_ref,
@@ -832,11 +840,15 @@ function M.compile(opts)
   -- 4. Casts (multiple supported, combined via ConditioningCombine)
   local positive_ref, negative_ref
   model_ref, positive_ref, negative_ref = compile_casts(
-    g, effective_casts, model_ref, clip_ref, opts.world, atmosphere_text, opts.strategy
+    g, effective_casts, model_ref, clip_ref, opts.world, atmosphere_text, opts.strategy,
+    opts.no_lint_fix
   )
 
   -- 5. Global negative (opts.negative)
   local global_neg_text = resolve_global_negative(opts)
+  if global_neg_text and not opts.no_lint_fix then
+    global_neg_text = dedup.fix(global_neg_text)
+  end
   negative_ref = compile_global_negative(
     g, global_neg_text, negative_ref, clip_ref
   )
@@ -1061,6 +1073,17 @@ function M.check(opts)
         if not finding.suppressed then
           warnings[#warnings + 1] = string.format(
             "cast[%d] %s", ci, over_prompt.format(finding))
+        end
+      end
+
+      -- Dedup lint (warn side): duplicate clauses. The fix runs in the compile
+      -- path (gated by no_lint_fix); this surfaces the same finding as a warning
+      -- in the check pass. Silence via Shot:intent("dedup").
+      local dd = dedup.check(groups, opts.intents)
+      for _, finding in ipairs(dd.findings) do
+        if not finding.suppressed then
+          warnings[#warnings + 1] = string.format(
+            "cast[%d] %s", ci, dedup.format(finding))
         end
       end
     end

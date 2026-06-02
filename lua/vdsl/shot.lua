@@ -24,7 +24,7 @@ local RENDER_FIELDS = {
   "denoise", "size", "strategy", "on_conflict",
   "post", "auto_post", "output",
   "gen_id", "run_id", "workspace_id", "script", "ts",
-  "intents",
+  "intents", "no_lint_fix",
 }
 
 --- Create a Shot entity from render opts.
